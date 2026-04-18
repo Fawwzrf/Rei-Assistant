@@ -6,12 +6,14 @@ import ollama
 import asyncio
 import re
 from config import OLLAMA_MODEL, SYSTEM_PROMPT, OLLAMA_HOST
+from services.memory_service import MemoryService
 
 
 class LLMService:
     def __init__(self):
         self.model = OLLAMA_MODEL
         self.client = ollama.AsyncClient(host=OLLAMA_HOST)
+        self.memory = MemoryService()
         self.conversation_history = []
         self._init_conversation()
 
@@ -35,12 +37,23 @@ class LLMService:
             "content": user_message
         })
 
+        # Augment the list of messages sent to Ollama with RAG context
+        context_str = self.memory.query_context(user_message)
+        messages_to_send = list(self.conversation_history)
+        
+        if context_str:
+            augmented_content = f"{user_message}\n\n[INFO SISTEM - KONTEKS TAMBAHAN UNTUK MEMBANTUMU MENJAWAB:\n{context_str}\n\nCatatan: Gunakan konteks di atas untuk menjawab jika relevan saja. Jangan sebutkan bahwa kamu membaca konteks sistem.]"
+            messages_to_send[-1] = {
+                "role": "user",
+                "content": augmented_content
+            }
+
         full_response = ""
 
         try:
             stream = await self.client.chat(
                 model=self.model,
-                messages=self.conversation_history,
+                messages=messages_to_send,
                 stream=True,
             )
 
@@ -65,6 +78,17 @@ class LLMService:
             # Clean expression tag from final response
             clean_response = re.sub(
                 r'\s*\[EXPRESSION:\w+\]\s*', '', full_response
+            )
+            
+            # Extract and save memory tags BEFORE deleting them
+            mem_match = re.search(r'\[MEMORY:(.*?)\]', clean_response)
+            if mem_match:
+                fact_to_remember = mem_match.group(1).strip()
+                self.memory.save_memory(fact_to_remember)
+                
+            # Clean memory tags from final response
+            clean_response = re.sub(
+                r'\s*\[MEMORY:.*?\]\s*', '', clean_response
             ).strip()
 
             # Extract final expression

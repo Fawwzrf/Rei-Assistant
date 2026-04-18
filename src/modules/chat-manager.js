@@ -175,8 +175,10 @@ class ChatManager {
     return text
       // Strip expression tags completely
       .replace(/\[EXPRESSION:[^\]]*\]/g, '')
-      // Strip partial expression tags forming at the end of the stream
       .replace(/\[EXPRESSION:[^\]]*$/, '')
+      // Strip memory tags completely
+      .replace(/\[MEMORY:[^\]]*\]/g, '')
+      .replace(/\[MEMORY:[^\]]*$/, '')
       // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       // Italic

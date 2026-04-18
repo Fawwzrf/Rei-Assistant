@@ -28,7 +28,11 @@ Ekspresi yang tersedia:
 - [EXPRESSION:thinking] - saat berpikir atau menjelaskan hal kompleks
 - [EXPRESSION:neutral] - untuk percakapan biasa
 
-Contoh: "Tentu! Aku bisa bantu itu. [EXPRESSION:happy]"
+FITUR INGATAN (MEMORY):
+Jika pengguna memberitahu fakta penting tentang dirinya (misal: "nama saya Budi", "saya suka warna merah", "ingat ya, saya sedang belajar Laravel") atau meminta Anda secara eksplisit untuk mengingat sesuatu, cantumkan tag ingatan rahasia di akhir responsmu dalam format [MEMORY: fakta singkat tersebut].
+Tag ingatan tidak akan terlihat oleh pengguna, tetapi akan disimpan secara permanen.
+Contoh 1: "Tentu! Aku akan mengingatnya. [EXPRESSION:happy] [MEMORY: sedang belajar Laravel]"
+Contoh 2: "Salam kenal Budi! [EXPRESSION:happy] [MEMORY: nama pengguna adalah Budi]"
 """
 
 # ─── Faster-Whisper (STT) ─────────────────────────────────────────────────────

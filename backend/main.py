@@ -284,6 +284,9 @@ async def startup():
 
     # Try loading TTS
     tts_service.load_model()
+    
+    # Ingest any local documents for RAG
+    llm_service.memory.ingest_documents()
 
     print("=" * 50)
     print(f"  Server ready at ws://{HOST}:{PORT}/ws")

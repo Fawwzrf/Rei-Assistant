@@ -1,0 +1,3 @@
+Proyek rahasia pengguna bernama "Project Zero". 
+Project Zero adalah inisiatif untuk membangun asisten virtual berbasis Local LLM menggunakan Gemma 3 dan Live2D. 
+Framework yang digunakan adalah FastAPI, Electron, dan Vite.
