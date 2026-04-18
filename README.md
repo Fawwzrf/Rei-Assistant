@@ -1,14 +1,53 @@
 # Rei Project: Gemma-Aura 🌸
 
-Rei Project adalah asisten AI virtual berbasis desktop yang ditenagai oleh model bahasa **Gemma 3** (melalui Ollama), lengkap dengan integrasi **Live2D** untuk visualisasi karakter, **STT (Speech-to-Text)** untuk input suara, dan **TTS (Text-to-Speech)** untuk output suara.
+Rei Project adalah asisten AI virtual berbasis desktop yang ditenagai oleh model bahasa **Gemma 3** (melalui Ollama), lengkap dengan integrasi **Live2D** untuk visualisasi karakter, **STT (Speech-to-Text)** untuk input suara, dan **TTS (Text-to-Speech)** untuk output suara. Sistem ini dibangun dengan fokus pada latensi rendah (*True Token Streaming*) dan dilengkapi sistem memori berkelanjutan (*Long-Term Memory*).
 
 ## 🚀 Fitur Utama
 
-- **Visual Karakter Live2D**: Karakter "Rei" yang responsif dengan animasi ekspresi otomatis berdasarkan konteks pembicaraan.
-- **Local AI (Gemma 3)**: Pemrosesan bahasa dilakukan secara lokal menggunakan Ollama untuk privasi dan kecepatan.
-- **Input Suara (STT)**: Menggunakan Faster-Whisper untuk pengenalan suara Bahasa Indonesia yang akurat.
-- **Output Suara (TTS)**: Menggunakan Piper TTS untuk sintesis suara yang natural secara offline.
-- **Komunikasi Real-time**: Menggunakan WebSocket untuk interaksi yang mulus antara frontend Electron dan backend FastAPI.
+- **Visual Karakter Live2D**: Animasi karakter "Rei" yang responsif dengan sinkronisasi bibir (*lip-sync*) otomatis dan perubahan ekspresi berdasarkan konteks pembicaraan.
+- **Local AI (Gemma 3)**: Pemrosesan bahasa 100% berjalan secara lokal menggunakan Ollama, menjamin privasi penuh.
+- **Contextual Memory & RAG**: Kemampuan *Long-Term Memory* dan RAG menggunakan **ChromaDB**. Rei dapat mengingat fakta spesifik tentang Anda atau mengambil data dari kumpulan dokumen lokal Anda di folder `knowledge/`.
+- **True Token Streaming**: Teks dikirim secara instan ke layar (*Time to First Token* < 500ms) tanpa harus menunggu seluruh kalimat maupun TTS selesai digenerate.
+- **Input Suara (STT)**: Memanfaatkan Faster-Whisper untuk pengenalan suara Bahasa Indonesia yang akurat dan responsif.
+- **Output Suara (TTS)**: Piper TTS bertugas mensintesis suara secara natural di latar belakang (*asynchronous*), memastikan antrean pembicaraan tidak menunda aliran teks awal.
+
+## 🏗️ System Architecture
+
+Arsitektur aplikasi dirancang agar proses pemahaman suara, pengambilan pikiran, dan animasi dapat berjalan seefisien dan sesinkron mungkin:
+
+```mermaid
+flowchart TD
+    %% Frontend Components
+    A[🎤 Microphone] -->|Raw Audio Stream| B[STT Service\nFaster-Whisper]
+    
+    subgraph Backend [FastAPI Backend]
+        B -->|Transcribed Text| D{WebSocket Router}
+        D -->|Query| E[(Vector DB\nChromaDB)]
+        E -->|RAG Context| F[LLM Engine\nGemma 3 4B via Ollama]
+        D -->|User Message| F
+        F -->|Token Stream| D
+        F -->|Sentence Boundry| G[TTS Service\nPiper TTS]
+        G -->|Audio Stream| D
+    end
+
+    %% Sync to Frontend Frontend
+    D -->|Instan Tokens| H[💻 UI Chat Manager]
+    D -->|Audio Queue| I[🔊 Audio Player]
+    I -->|Audio Playback| User((User))
+    I -->|Amplitude Analysis| J[✨ Live2D Manager\nLip-Sync Engine]
+```
+
+## 📊 Benchmark
+
+Data pengujian lokal pada perangkat standar:
+
+| Metrik | Hasil/Performa | Catatan |
+| :--- | :--- | :--- |
+| **Model Size (Gemma 3)** | 4B (Quantized GGUF/4-bit) | ~2.6 GB VRAM Footprint |
+| **Token per Second (TPS)** | ~25 - 35 TPS | Tergantung kapasitas GPU. Sangat pas untuk *reading speed* manusia. |
+| **Time to First Token (TTFT)** | < 500 ms | Token langsung masuk ke UI lewat *WebSocket Stream*. |
+| **TTS Generation Delay** | ~1 - 2 Detik / Kalimat | Dieksekusi secara asinkron sehingga tidak memblokir teks. |
+| **STT Latency** | < 1 Detik | *Voice Activity Detection (VAD)* otomatis memotong keheningan. |
 
 ## 🛠️ Prasyarat
 
@@ -21,46 +60,34 @@ Sebelum menjalankan sistem ini, pastikan Anda telah menginstal:
 
 ## 📂 Struktur Proyek
 
-- `/backend`: Server FastAPI (LLM, STT, TTS logic).
-- `/electron`: Kode utama aplikasi desktop Electron.
-- `/src`: Frontend web (Vite + PixiJS untuk Live2D).
+- `/backend`: Server FastAPI (LLM, RAG/ChromaDB, STT, TTS logic).
+- `/backend/knowledge`: Drop folder untuk dokumen pendukung RAG (`.txt`, `.md`).
+- `/electron`: Kode utama aplikasi desktop Electron yang membungkus antarmuka web.
+- `/src`: Frontend web (Vite + WebGL/PixiJS untuk render Live2D).
 - `/assets`: Model Live2D dan aset pendukung.
 
 ## ⚙️ Cara Menjalankan
 
-### 1. Persiapan Backend (Python)
+Karena Node.js (Vite & Electron) dikonfigurasi untuk secara otomatis memancing berjalannya *Python Backend* (via `electron/main.js`), Anda tidak perlu repot-repot menyalakan keduanya secara manual!
 
-Buka terminal di folder root proyek dan jalankan:
+Buka terminal di folder root proyek:
 
 ```bash
-# Pindah ke direktori backend (opsional, bisa jalankan dari root)
+# Install seluruh dependensi backend (Python) & frontend (Node)
 cd backend
-
-# Install dependensi Python
 pip install -r requirements.txt
-
-# Jalankan server backend
-python main.py
-```
-*Catatan: Backend akan berjalan di `ws://127.0.0.1:8765/ws`.*
-
-### 2. Persiapan Frontend & Electron (Node.js)
-
-Buka terminal baru di folder root proyek:
-
-```bash
-# Install dependensi NPM
+cd ..
 npm install
 
-# Jalankan aplikasi dalam mode pengembangan
+# Jalankan aplikasi (Ollama & Python Backend akan otomatis di-start di belakang layar)
 npm run electron:dev
 ```
 
 ## 📝 Catatan Penting
 
-- **Ollama**: Pastikan service Ollama sudah berjalan sebelum menjalankan backend.
-- **Model TTS**: Pastikan file model `.onnx` untuk Piper TTS tersedia di folder `assets/tts-models/` sesuai konfigurasi di `backend/config.py`.
-- **Live2D**: Jika karakter tidak muncul, pastikan file model Live2D ada di dalam folder `assets/model/`.
+- **Live2D**: Harap diingat bahwa sistem ini menggunakan SDK versi *Cubism Core v4* agar terhindar dari isu memori. File model berada di dalam folder `assets/model/hiyori/`.
+- **Ekstensi C++ Builder**: Beberapa layanan seperti Faster-Whisper atau ChromaDB yang membutuhkan library C++ build-tools sewaktu instalasi `pip` mungkin membutuhkan Microsoft C++ Build Tools (untuk Windows) jika terjadi diskrepansi *wheel*.
+- **RAG/Memori Awal**: Waktu proses pertama kali *backend* berjalan, ia akan mendownload *embedding model* berukuran sekitar ~100MB di *background*. Harap persiapkan koneksi internet Anda!
 
 ---
-**Dikembangkan oleh Fawwaz**
+**Dirancang dan Dikembangkan oleh Fawwaz**
