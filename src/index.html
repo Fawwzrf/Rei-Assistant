@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Gemma-Aura — Your personal AI assistant with Live2D avatar">
+  <title>Gemma-Aura — AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles/index.css">
+</head>
+<body>
+  <!-- ─── Custom Title Bar ────────────────────────────────────────── -->
+  <header id="titlebar">
+    <div class="titlebar-brand">
+      <div class="brand-dot"></div>
+      <span class="brand-name">Gemma-Aura</span>
+      <span class="brand-status" id="connectionStatus">Connecting...</span>
+    </div>
+    <div class="titlebar-controls">
+      <button id="btnMinimize" class="titlebar-btn" aria-label="Minimize">
+        <svg width="12" height="2" viewBox="0 0 12 2"><rect width="12" height="2" fill="currentColor"/></svg>
+      </button>
+      <button id="btnMaximize" class="titlebar-btn" aria-label="Maximize">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+      </button>
+      <button id="btnClose" class="titlebar-btn titlebar-btn--close" aria-label="Close">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1L11 11M11 1L1 11" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── Main Content ─────────────────────────────────────────── -->
+  <main id="app">
+    <!-- Live2D Canvas -->
+    <div id="live2dContainer">
+      <canvas id="live2dCanvas"></canvas>
+      
+      <!-- Status Indicator overlay on avatar -->
+      <div class="avatar-status" id="avatarStatus">
+        <div class="status-indicator" id="statusIndicator">
+          <div class="pulse-ring"></div>
+          <div class="status-dot"></div>
+        </div>
+        <span class="status-text" id="statusText">Online</span>
+      </div>
+    </div>
+
+    <!-- Chat Panel -->
+    <aside id="chatPanel">
+      <div class="chat-header">
+        <h1 class="chat-title">Rei</h1>
+        <p class="chat-subtitle">AI Assistant</p>
+        <button id="btnResetChat" class="btn-icon" title="Reset percakapan">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="chat-messages" id="chatMessages">
+        <!-- Welcome message -->
+        <div class="message message--assistant">
+          <div class="message-avatar">R</div>
+          <div class="message-bubble">
+            <p>Halo! Aku <strong>Rei</strong>, asisten AI kamu. 👋</p>
+            <p>Ketik pesan atau tekan tombol mic untuk mulai bicara!</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="chat-input-area">
+        <div class="input-wrapper">
+          <textarea 
+            id="chatInput" 
+            placeholder="Ketik pesan ke Rei..." 
+            rows="1"
+            aria-label="Chat input"
+          ></textarea>
+          <div class="input-actions">
+            <button id="btnMic" class="btn-action btn-mic" title="Tekan untuk bicara (Push-to-Talk)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="2" width="6" height="11" rx="3"/>
+                <path d="M5 10a7 7 0 0 0 14 0"/>
+                <line x1="12" y1="19" x2="12" y2="22"/>
+              </svg>
+            </button>
+            <button id="btnSend" class="btn-action btn-send" title="Kirim pesan">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13"/>
+                <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ─── Thinking Overlay (shown when AI is processing) ────── -->
+  <div class="thinking-overlay" id="thinkingOverlay" hidden>
+    <div class="thinking-dots">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/live2d/hiyori/live2dcubismcore.min.js"></script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

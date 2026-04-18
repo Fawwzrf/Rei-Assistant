@@ -1,0 +1,226 @@
+/**
+ * Gemma-Aura — Main Entry Point
+ * Initializes all modules and orchestrates the AI assistant.
+ */
+
+import WebSocketClient from './modules/websocket-client.js';
+import ChatManager from './modules/chat-manager.js';
+import Live2DManager from './modules/live2d-manager.js';
+import ExpressionController from './modules/expression-controller.js';
+import AudioRecorder from './modules/audio-recorder.js';
+import AudioPlayer from './modules/audio-player.js';
+
+// ─── Initialize Modules ──────────────────────────────────────────────────
+const ws = new WebSocketClient();
+const chat = new ChatManager();
+const live2d = new Live2DManager('live2dCanvas');
+const expression = new ExpressionController();
+const recorder = new AudioRecorder();
+const player = new AudioPlayer();
+
+// ─── DOM References ──────────────────────────────────────────────────────
+const connectionStatus = document.getElementById('connectionStatus');
+const avatarStatus = document.getElementById('avatarStatus');
+const statusText = document.getElementById('statusText');
+const btnMic = document.getElementById('btnMic');
+const thinkingOverlay = document.getElementById('thinkingOverlay');
+
+// ─── Titlebar Controls ───────────────────────────────────────────────────
+document.getElementById('btnMinimize')?.addEventListener('click', () => {
+  window.electronAPI?.minimize();
+});
+document.getElementById('btnMaximize')?.addEventListener('click', () => {
+  window.electronAPI?.maximize();
+});
+document.getElementById('btnClose')?.addEventListener('click', () => {
+  window.electronAPI?.close();
+});
+
+// ─── WebSocket Event Handlers ────────────────────────────────────────────
+ws.on('connected', () => {
+  connectionStatus.textContent = 'Connected';
+  connectionStatus.classList.add('connected');
+  setAvatarState('idle');
+});
+
+ws.on('disconnected', () => {
+  connectionStatus.textContent = 'Disconnected';
+  connectionStatus.classList.remove('connected');
+  setAvatarState('error');
+});
+
+ws.on('error', (data) => {
+  if (data?.message) {
+    chat.addSystemMessage(`Error: ${data.message}`, 'error');
+  }
+});
+
+ws.on('token', (data) => {
+  if (!chat.isStreaming) {
+    chat.startStream();
+  }
+  // Filter out expression tags from display
+  const cleanToken = data.text.replace(/\s*\[EXPRESSION:\w+\]\s*/g, '');
+  if (cleanToken) {
+    chat.appendToken(cleanToken);
+  }
+});
+
+ws.on('response_complete', (data) => {
+  chat.endStream(data.text);
+
+  // Apply expression to avatar
+  if (data.expression) {
+    live2d.setExpression(data.expression);
+    expression.setExpression(
+      data.expression,
+      data.expression_params,
+      data.transition_duration || 0.5
+    );
+  }
+
+  // Set thinking overlay off
+  thinkingOverlay.hidden = true;
+});
+
+ws.on('audio_response', (data) => {
+  if (data.data) {
+    player.play(data.data);
+  }
+});
+
+ws.on('stt_result', (data) => {
+  if (data.text) {
+    chat.addUserMessage(data.text);
+  }
+});
+
+ws.on('status', (data) => {
+  setAvatarState(data.state);
+
+  if (data.state === 'thinking') {
+    thinkingOverlay.hidden = false;
+  } else {
+    thinkingOverlay.hidden = true;
+  }
+});
+
+ws.on('max_reconnect', () => {
+  connectionStatus.textContent = 'Offline';
+  chat.addSystemMessage(
+    '⚠️ Tidak dapat terhubung ke backend. Pastikan server berjalan.',
+    'error'
+  );
+});
+
+// ─── Chat Callbacks ──────────────────────────────────────────────────────
+chat.onSendMessage = (text) => {
+  ws.sendChat(text);
+};
+
+chat.onReset = () => {
+  ws.resetConversation();
+  live2d.setExpression('neutral');
+};
+
+// ─── Audio / Mic Controls ────────────────────────────────────────────────
+let micInitialized = false;
+
+btnMic.addEventListener('mousedown', async () => {
+  if (!micInitialized) {
+    const ok = await recorder.init();
+    if (!ok) {
+      chat.addSystemMessage('🎤 Akses mikrofon ditolak.', 'error');
+      return;
+    }
+    micInitialized = true;
+  }
+
+  recorder.startRecording();
+  btnMic.classList.add('recording');
+  setAvatarState('listening');
+});
+
+btnMic.addEventListener('mouseup', () => {
+  if (recorder.isRecording) {
+    recorder.stopRecording();
+    btnMic.classList.remove('recording');
+    setAvatarState('idle');
+  }
+});
+
+btnMic.addEventListener('mouseleave', () => {
+  if (recorder.isRecording) {
+    recorder.stopRecording();
+    btnMic.classList.remove('recording');
+    setAvatarState('idle');
+  }
+});
+
+recorder.onAudioReady = (base64Data) => {
+  ws.sendAudio(base64Data);
+};
+
+// ─── Audio Player → Lip Sync ────────────────────────────────────────────
+player.onAmplitude = (amplitude) => {
+  live2d.setMouthOpen(amplitude);
+  expression.setMouthOpen(amplitude);
+};
+
+player.onPlayEnd = () => {
+  setAvatarState('idle');
+  live2d.setMouthOpen(0);
+};
+
+// ─── Status Helpers ──────────────────────────────────────────────────────
+function setAvatarState(state) {
+  // Remove old state classes
+  avatarStatus.className = 'avatar-status';
+
+  switch (state) {
+    case 'idle':
+      avatarStatus.classList.add('idle');
+      statusText.textContent = 'Online';
+      break;
+    case 'thinking':
+      avatarStatus.classList.add('thinking');
+      statusText.textContent = 'Berpikir...';
+      live2d.setExpression('thinking');
+      break;
+    case 'speaking':
+      avatarStatus.classList.add('speaking');
+      statusText.textContent = 'Berbicara...';
+      break;
+    case 'listening':
+      avatarStatus.classList.add('listening');
+      statusText.textContent = 'Mendengar...';
+      break;
+    case 'error':
+      avatarStatus.classList.add('error');
+      statusText.textContent = 'Offline';
+      break;
+    default:
+      statusText.textContent = state;
+  }
+}
+
+// ─── Initialize Everything ───────────────────────────────────────────────
+async function init() {
+  console.log('🌟 Gemma-Aura initializing...');
+
+  // Initialize Live2D avatar
+  await live2d.init();
+
+  // Connect expression controller to model
+  const model = live2d.getModel();
+  if (model) {
+    expression.setModel(model);
+  }
+
+  // Connect to backend
+  ws.connect();
+
+  console.log('✨ Gemma-Aura ready!');
+}
+
+init();
