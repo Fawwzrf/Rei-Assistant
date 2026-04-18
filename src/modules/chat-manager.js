@@ -173,6 +173,10 @@ class ChatManager {
     if (!text) return '';
 
     return text
+      // Strip expression tags completely
+      .replace(/\[EXPRESSION:[^\]]*\]/g, '')
+      // Strip partial expression tags forming at the end of the stream
+      .replace(/\[EXPRESSION:[^\]]*$/, '')
       // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       // Italic

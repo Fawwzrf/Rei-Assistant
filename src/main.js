@@ -56,18 +56,30 @@ ws.on('error', (data) => {
 });
 
 ws.on('token', (data) => {
-  // Ignored in new implementation; text is appended via sentences.
-});
-
-ws.on('sentence', (data) => {
   if (!chat.isStreaming) {
     chat.startStream();
   }
   
-  // Filter out expression tags from display
-  const cleanSentence = data.text.replace(/\s*\[EXPRESSION:\w+\]\s*/g, '');
-  if (cleanSentence) {
-    player.enqueue(data.audio || null, cleanSentence);
+  if (data.text) {
+    // Hide partial or full expression tags like [EXPR, [EXPRESSION:smile]
+    // We use a regex that matches any part of an expression tag so it doesn't flicker on screen
+    let textToDisplay = data.text;
+    
+    // If the token itself is just part of an expression bracket, we can accumulate it,
+    // but the easiest way is to filter using the chat-manager's current string or simply
+    // filter token-by-token. Since tokens can split `[EXPRESSION...`, we better keep track of state
+    // But for a simple implementation, if token contains `[EXPRESSION:` or parts of it, we omit it.
+    // Instead of doing stateful stripping here, we'll just append it and let chat manager format it.
+    // Actually, `[EXPRESSION:xyz]` comes through tokens. We'll strip it in the formatter.
+    chat.appendToken(data.text);
+  }
+});
+
+ws.on('sentence', (data) => {
+  if (data.audio) {
+    // Only enqueue the audio for playback. 
+    // The text has already been continuously displayed via token stream.
+    player.enqueue(data.audio, null);
   }
 
   // Apply expression if the sentence dictates one
