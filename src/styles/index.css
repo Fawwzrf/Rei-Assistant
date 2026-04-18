@@ -259,6 +259,7 @@ html, body {
   font-size: 12px;
   color: var(--clr-text-secondary);
   transition: all var(--duration-normal) var(--ease-out);
+  z-index: 10; /* Above PIXI canvas (z-index 0) */
 }
 
 .status-indicator {

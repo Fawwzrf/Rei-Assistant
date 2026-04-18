@@ -123,6 +123,7 @@ async def handle_chat(websocket: WebSocket, text: str):
     })
 
     full_response = ""
+    sentence_buffer = ""
 
     # Stream response tokens
     async for chunk in llm_service.chat_stream(text):
@@ -134,13 +135,50 @@ async def handle_chat(websocket: WebSocket, text: str):
             return
 
         if not chunk["done"]:
-            await websocket.send_json({
-                "type": "token",
-                "text": chunk["token"],
-                "expression": chunk.get("expression"),
-                "done": False,
-            })
+            token = chunk["token"]
+            sentence_buffer += token
+
+            # Check if we hit a sentence boundary and have enough text
+            if any(punc in token for punc in ['. ', '? ', '! ', '\n']) and len(sentence_buffer.strip()) > 2:
+                clean_sentence = sentence_buffer.strip()
+                sentence_buffer = ""
+
+                # Process this sentence for TTS
+                audio_b64 = None
+                if tts_service.is_available():
+                    loop = asyncio.get_event_loop()
+                    audio_bytes = await loop.run_in_executor(
+                        None, tts_service.synthesize, clean_sentence
+                    )
+                    if audio_bytes:
+                        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+                await websocket.send_json({
+                    "type": "sentence",
+                    "text": clean_sentence + " ",
+                    "audio": audio_b64,
+                    "expression": chunk.get("expression", "neutral"),
+                })
         else:
+            # Process remaining buffer if any
+            if sentence_buffer.strip():
+                clean_sentence = sentence_buffer.strip()
+                audio_b64 = None
+                if tts_service.is_available():
+                    loop = asyncio.get_event_loop()
+                    audio_bytes = await loop.run_in_executor(
+                        None, tts_service.synthesize, clean_sentence
+                    )
+                    if audio_bytes:
+                        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+                await websocket.send_json({
+                    "type": "sentence",
+                    "text": clean_sentence,
+                    "audio": audio_b64,
+                    "expression": chunk.get("expression", "neutral"),
+                })
+
             full_response = chunk.get("full_response", "")
             final_expression = chunk.get("expression", "neutral")
 
@@ -155,27 +193,6 @@ async def handle_chat(websocket: WebSocket, text: str):
                 "expression": final_expression,
                 "expression_params": expr_data["params"],
                 "transition_duration": expr_data["transition_duration"],
-            })
-
-    # Generate TTS audio if available
-    if tts_service.is_available() and full_response:
-        await websocket.send_json({
-            "type": "status",
-            "state": "speaking",
-        })
-
-        # Run TTS in thread pool to not block
-        loop = asyncio.get_event_loop()
-        audio_bytes = await loop.run_in_executor(
-            None, tts_service.synthesize, full_response
-        )
-
-        if audio_bytes:
-            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-            await websocket.send_json({
-                "type": "audio_response",
-                "data": audio_b64,
-                "format": "wav",
             })
 
     # Notify client: idle

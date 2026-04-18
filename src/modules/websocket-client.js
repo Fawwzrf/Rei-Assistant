@@ -130,6 +130,9 @@ class WebSocketClient {
       case 'token':
         this.emit('token', message);
         break;
+      case 'sentence':
+        this.emit('sentence', message);
+        break;
       case 'response_complete':
         this.emit('response_complete', message);
         break;

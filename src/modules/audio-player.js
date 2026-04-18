@@ -9,8 +9,10 @@ class AudioPlayer {
     this.analyser = null;
     this.sourceNode = null;
     this.isPlaying = false;
+    this.queue = [];
     this.onAmplitude = null; // callback(amplitude: 0-1)
     this.onPlayEnd = null;
+    this.onPlayStart = null; // callback(text)
     this._animFrame = null;
   }
 
@@ -28,19 +30,46 @@ class AudioPlayer {
   }
 
   /**
-   * Play WAV audio from base64 string.
+   * Queue audio and text for sequential playback.
    */
-  async play(base64Audio) {
-    if (!base64Audio) return;
+  enqueue(base64Audio, textContent) {
+    this.queue.push({ bg64: base64Audio, text: textContent });
+    if (!this.isPlaying) {
+      this._playNext();
+    }
+  }
+
+  /**
+   * Play the next item in the queue.
+   */
+  async _playNext() {
+    if (this.queue.length === 0) {
+      this.isPlaying = false;
+      this._stopAmplitudeTracking();
+      if (this.onPlayEnd) this.onPlayEnd();
+      return;
+    }
+
+    this.isPlaying = true;
+    const item = this.queue.shift();
+
+    // Trigger onPlayStart so text is appended exactly when audio starts
+    if (this.onPlayStart && item.text) {
+      this.onPlayStart(item.text);
+    }
+
+    if (!item.bg64) {
+      // If no audio (tts failed), just skip to next
+      this._playNext();
+      return;
+    }
 
     this.init();
-
-    // Stop any current playback
-    this.stop();
+    this._stopCurrentNode();
 
     try {
       // Decode base64 to ArrayBuffer
-      const binaryString = atob(base64Audio);
+      const binaryString = atob(item.bg64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
@@ -57,35 +86,42 @@ class AudioPlayer {
       this.sourceNode.connect(this.analyser);
 
       this.sourceNode.onended = () => {
-        this.isPlaying = false;
-        this._stopAmplitudeTracking();
-        if (this.onPlayEnd) this.onPlayEnd();
+        this._stopCurrentNode();
+        this._playNext(); // Proceed to next sentence
       };
 
       // Start playback
       this.sourceNode.start(0);
-      this.isPlaying = true;
 
       // Start tracking amplitude for lip-sync
       this._startAmplitudeTracking();
     } catch (e) {
       console.error('[AudioPlayer] Playback error:', e);
-      this.isPlaying = false;
+      this._playNext();
     }
   }
 
   /**
-   * Stop current playback.
+   * Stop current audio node without terminating the whole queue state
    */
-  stop() {
+  _stopCurrentNode() {
     if (this.sourceNode) {
       try {
+        this.sourceNode.onended = null;
         this.sourceNode.stop();
       } catch (e) {
         // Already stopped
       }
       this.sourceNode = null;
     }
+  }
+
+  /**
+   * Stop completely and clear queue.
+   */
+  stop() {
+    this.queue = [];
+    this._stopCurrentNode();
     this.isPlaying = false;
     this._stopAmplitudeTracking();
   }

@@ -8,6 +8,8 @@
  * PixiJS plugin like 'pixi-live2d-display'.
  */
 
+import * as PIXI from 'pixi.js';
+
 class Live2DManager {
   constructor(canvasId) {
     this.canvas = document.getElementById(canvasId);
@@ -32,56 +34,129 @@ class Live2DManager {
    * Initialize the PixiJS application and load model.
    */
   async init() {
+    this._initFallbackAvatar();
+
     try {
-      console.log('[Live2D] WebGL SDK bypassed. Using beautiful canvas 2D animated avatar.');
-      this.useFallback = true;
-      this._initFallbackAvatar();
+      window.PIXI = PIXI;
+
+      if (typeof window.Live2DCubismCore === 'undefined') {
+        console.warn('[Live2D] Live2DCubismCore not loaded — using canvas fallback.');
+        return;
+      }
+
+      const { Live2DModel } = await import('pixi-live2d-display/cubism4');
+
+      const pixiCanvas = document.createElement('canvas');
+      pixiCanvas.style.position = 'absolute';
+      pixiCanvas.style.top = '0';
+      pixiCanvas.style.left = '0';
+      pixiCanvas.style.width = '100%';
+      pixiCanvas.style.height = '100%';
+      pixiCanvas.style.display = 'none';
+      pixiCanvas.style.pointerEvents = 'none';
+      const firstChild = this.canvas.parentElement.firstChild;
+      if (firstChild) {
+        this.canvas.parentElement.insertBefore(pixiCanvas, firstChild);
+      } else {
+        this.canvas.parentElement.appendChild(pixiCanvas);
+      }
+      this._pixiCanvas = pixiCanvas;
+      pixiCanvas.style.zIndex = '0';
+
+      const parent = this.canvas.parentElement;
+      this.app = new PIXI.Application({
+        view: pixiCanvas,
+        resizeTo: parent,
+        transparent: true,
+        backgroundAlpha: 0,
+      });
+
+      await this._loadLive2DModel(Live2DModel);
+      this.useFallback = false;
       this.isLoaded = true;
-      console.log('[Live2D] Manager initialized');
+      console.log('[Live2D] Manager initialized successfully with WebGL SDK.');
+
+      this.canvas.style.display = 'none';
+      pixiCanvas.style.display = 'block';
+
     } catch (e) {
-      console.error('[Live2D] Init failed:', e);
-      this._initFallbackAvatar();
+      console.error('[Live2D] Init WebGL failed, keeping canvas 2D fallback:', e);
+      this.useFallback = true;
+      if (this.app) {
+        try { this.app.destroy(true); } catch(_) {}
+        this.app = null;
+      }
+      if (this._pixiCanvas) {
+        this._pixiCanvas.remove();
+        this._pixiCanvas = null;
+      }
+      this.canvas.style.display = 'block';
+      this.isLoaded = true;
     }
   }
 
   /**
    * Attempt to load Live2D model with the SDK.
    */
-  async _loadLive2DModel() {
-    // Check if Cubism Core is available on window
-    if (typeof window.Live2DCubismCore === 'undefined') {
-      throw new Error('Live2DCubismCore not loaded');
-    }
-
-    // Dynamic import of Live2D display plugin (Cubism 4 only)
-    const { Live2DModel } = await import('pixi-live2d-display/cubism4');
-
+  async _loadLive2DModel(Live2DModel) {
     const modelPath = '/live2d/hiyori/Hiyori.model3.json';
-    this.model = await Live2DModel.from(modelPath);
+    
+    this.model = Live2DModel.fromSync(modelPath);
+    
+    this.model.on('error', (e) => {
+      console.error('[Live2D] Model loading error:', e);
+    });
+    
+    await new Promise((resolve, reject) => {
+      this.model.once('load', () => {
+        this.model.scale.set(0.25);
+        this.model.anchor.set(0.5, 0.5);
+        this.model.x = this.app.screen.width / 2;
+        this.model.y = this.app.screen.height * 0.65;
 
-    // Scale and position the model
-    this.model.scale.set(0.25);
-    this.model.anchor.set(0.5, 0.5);
-    this.model.x = this.app.screen.width / 2;
-    this.model.y = this.app.screen.height / 2;
+        this.app.stage.addChild(this.model);
 
-    this.app.stage.addChild(this.model);
-    this.useFallback = false;
+        this._currentMouthOpen = 0;
+        this.model.internalModel.on('beforeModelUpdate', () => {
+          try {
+            this.model.internalModel.coreModel.setParameterValueById(
+              'ParamMouthOpenY',
+              this._currentMouthOpen
+            );
+          } catch(_) {}
+        });
 
-    console.log('[Live2D] Model loaded successfully');
+        const errorHandler = (err) => {
+          reject(new Error('Render error (likely Cubism Core version mismatch): ' + (err?.message || err)));
+        };
+        this.app.renderer.on('error', errorHandler);
+        let firstFrameDone = false;
+        const tickCheck = () => {
+          if (firstFrameDone) return;
+          firstFrameDone = true;
+          this.app.ticker.remove(tickCheck);
+          this.app.renderer.off('error', errorHandler);
+          console.log('[Live2D] Model rendered first frame successfully');
+          resolve();
+        };
+        this.app.ticker.add(tickCheck, null, PIXI.UPDATE_PRIORITY.LOW);
+
+        console.log('[Live2D] Model loaded and added to stage');
+      });
+
+      this.model.once('error', (e) => reject(e));
+      setTimeout(() => reject(new Error('Live2D model loading timed out after 15s')), 15000);
+    });
   }
 
   /**
    * Initialize a beautiful fallback avatar when Live2D SDK isn't available.
    */
   _initFallbackAvatar() {
-    // Destroy Pixi JS application if it exists
     if (this.app) {
       this.app.destroy(false);
       this.app = null;
     }
-
-    // Force clear any CSS background that might've been set
     this.canvas.style.backgroundColor = 'transparent';
 
     console.log('[Live2D] Fallback avatar active — using canvas rendering');
@@ -95,7 +170,6 @@ class Live2DManager {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
 
-    // Resize canvas
     const resize = () => {
       const parent = this.canvas.parentElement;
       this.canvas.width = parent.clientWidth * (window.devicePixelRatio || 1);
@@ -385,16 +459,30 @@ class Live2DManager {
   setExpression(expressionName) {
     if (this.useFallback) {
       this._fallbackState.expression = expressionName;
+      return;
+    }
+    // For the real Live2D model, set expression via the model API
+    if (this.model) {
+      try {
+        this.model.expression(expressionName);
+      } catch(e) {
+        // Expression name may not exist, ignore
+      }
     }
   }
 
   /**
-   * Set mouth open value for lip-sync.
+   * Set mouth open value (0.0 – 1.0) for lip-sync.
+   * Works for both the canvas fallback and the real Live2D WebGL model.
    */
   setMouthOpen(value) {
     if (this.useFallback) {
       this._fallbackState.mouthOpen = value;
+      return;
     }
+    // Store value; the PIXI ticker applies it every frame to prevent it
+    // being overridden by the model's internal motion update cycle.
+    this._currentMouthOpen = value;
   }
 
   /**

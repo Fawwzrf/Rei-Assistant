@@ -56,21 +56,34 @@ ws.on('error', (data) => {
 });
 
 ws.on('token', (data) => {
+  // Ignored in new implementation; text is appended via sentences.
+});
+
+ws.on('sentence', (data) => {
   if (!chat.isStreaming) {
     chat.startStream();
   }
+  
   // Filter out expression tags from display
-  const cleanToken = data.text.replace(/\s*\[EXPRESSION:\w+\]\s*/g, '');
-  if (cleanToken) {
-    chat.appendToken(cleanToken);
+  const cleanSentence = data.text.replace(/\s*\[EXPRESSION:\w+\]\s*/g, '');
+  if (cleanSentence) {
+    player.enqueue(data.audio || null, cleanSentence);
+  }
+
+  // Apply expression if the sentence dictates one
+  if (data.expression && data.expression !== "neutral") {
+    live2d.setExpression(data.expression);
+    expression.setExpression(data.expression, {}, 0.5);
   }
 });
 
 ws.on('response_complete', (data) => {
-  chat.endStream(data.text);
+  // Removed endStream here because the queue might still be playing out.
+  // Thinking overlay is hidden to show we're speaking
+  thinkingOverlay.hidden = true;
 
-  // Apply expression to avatar
   if (data.expression) {
+    // Final expression setter mapping
     live2d.setExpression(data.expression);
     expression.setExpression(
       data.expression,
@@ -78,15 +91,10 @@ ws.on('response_complete', (data) => {
       data.transition_duration || 0.5
     );
   }
-
-  // Set thinking overlay off
-  thinkingOverlay.hidden = true;
 });
 
 ws.on('audio_response', (data) => {
-  if (data.data) {
-    player.play(data.data);
-  }
+  // Legacy handler — audio now arrives chunked via 'sentence'.
 });
 
 ws.on('stt_result', (data) => {
@@ -120,7 +128,9 @@ chat.onSendMessage = (text) => {
 
 chat.onReset = () => {
   ws.resetConversation();
+  player.stop();
   live2d.setExpression('neutral');
+  chat.endStream('');
 };
 
 // ─── Audio / Mic Controls ────────────────────────────────────────────────
@@ -161,7 +171,11 @@ recorder.onAudioReady = (base64Data) => {
   ws.sendAudio(base64Data);
 };
 
-// ─── Audio Player → Lip Sync ────────────────────────────────────────────
+// ─── Audio Player → Lip Sync & Text Sync ────────────────────────────────
+player.onPlayStart = (text) => {
+  if (text) chat.appendToken(text);
+};
+
 player.onAmplitude = (amplitude) => {
   live2d.setMouthOpen(amplitude);
   expression.setMouthOpen(amplitude);
@@ -170,6 +184,7 @@ player.onAmplitude = (amplitude) => {
 player.onPlayEnd = () => {
   setAvatarState('idle');
   live2d.setMouthOpen(0);
+  chat.endStream(); // End stream only when audio completely finishes
 };
 
 // ─── Status Helpers ──────────────────────────────────────────────────────
