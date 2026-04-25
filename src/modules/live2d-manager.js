@@ -109,10 +109,10 @@ class Live2DManager {
     
     await new Promise((resolve, reject) => {
       this.model.once('load', () => {
-        this.model.scale.set(0.25);
+        this.model.scale.set(0.4);
         this.model.anchor.set(0.5, 0.5);
         this.model.x = this.app.screen.width / 2;
-        this.model.y = this.app.screen.height * 0.65;
+        this.model.y = this.app.screen.height * 1.1;
 
         this.app.stage.addChild(this.model);
 

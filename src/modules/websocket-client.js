@@ -169,6 +169,7 @@ class WebSocketClient {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
       console.log(`[WS] Reconnecting... (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+      this.emit('reconnecting', this.reconnectAttempts);
       this.connect();
     }, RECONNECT_INTERVAL);
   }

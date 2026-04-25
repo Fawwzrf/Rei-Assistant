@@ -8,6 +8,7 @@ import base64
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import re
 
 from config import HOST, PORT
 from services.llm_service import LLMService
@@ -182,17 +183,25 @@ async def handle_chat(websocket: WebSocket, text: str):
                 clean_sentence = sentence_buffer.strip()
                 sentence_buffer = ""
 
-                # Dispatch background task for TTS to avoid blocking the LLM stream
-                asyncio.create_task(
-                    synthesize_and_send(websocket, clean_sentence, chunk.get("expression", "neutral"))
-                )
+                # Bersihkan tag sistem dan teks action (*tersenyum*) sebelum diucapkan
+                tts_text = re.sub(r'\[.*?\]', '', clean_sentence)
+                tts_text = re.sub(r'\*.*?\*', '', tts_text).strip()
+
+                if tts_text:
+                    # Dispatch background task for TTS to avoid blocking the LLM stream
+                    asyncio.create_task(
+                        synthesize_and_send(websocket, tts_text, chunk.get("expression", "neutral"))
+                    )
         else:
             # Process remaining buffer if any
             if sentence_buffer.strip():
                 clean_sentence = sentence_buffer.strip()
-                asyncio.create_task(
-                    synthesize_and_send(websocket, clean_sentence, chunk.get("expression", "neutral"))
-                )
+                tts_text = re.sub(r'\[.*?\]', '', clean_sentence)
+                tts_text = re.sub(r'\*.*?\*', '', tts_text).strip()
+                if tts_text:
+                    asyncio.create_task(
+                        synthesize_and_send(websocket, tts_text, chunk.get("expression", "neutral"))
+                    )
 
             full_response = chunk.get("full_response", "")
             final_expression = chunk.get("expression", "neutral")
@@ -265,6 +274,34 @@ async def handle_audio(websocket: WebSocket, audio_b64: str):
 
 
 # ─── Startup / Shutdown ──────────────────────────────────────────────────────
+async def warmup_models():
+    """Background task to pre-load models into VRAM/Memory."""
+    print("[Warmup] Memulai pemanasan model di background...")
+    
+    # 1. Warmup LLM (Gemma) with the actual system prompt to cache it
+    try:
+        system_prompt = llm_service.conversation_history[0]["content"] if llm_service.conversation_history else "Anda adalah asisten AI."
+        await llm_service.client.chat(
+            model=llm_service.model, 
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "hi"}
+            ],
+            keep_alive="10m"
+        )
+        print("[Warmup] [OK] LLM (Gemma) & System Prompt berhasil dimuat ke VRAM/Cache.")
+    except Exception as e:
+        print(f"[Warmup] [FAIL] LLM warmup gagal: {e}")
+        
+    # 2. Warmup TTS (Piper)
+    if tts_service.is_available():
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, tts_service.synthesize, "siap")
+            print("[Warmup] [OK] TTS (Piper) berhasil dimuat ke Memori.")
+        except Exception as e:
+            print(f"[Warmup] [FAIL] TTS warmup gagal: {e}")
+
 @app.on_event("startup")
 async def startup():
     """Pre-load models on startup."""
@@ -287,6 +324,10 @@ async def startup():
     
     # Ingest any local documents for RAG
     llm_service.memory.ingest_documents()
+
+    # Jalankan proses pemanasan (warmup) secara asinkron di background
+    # sehingga tidak memblokir server FastAPI untuk segera menerima koneksi WebSocket
+    asyncio.create_task(warmup_models())
 
     print("=" * 50)
     print(f"  Server ready at ws://{HOST}:{PORT}/ws")

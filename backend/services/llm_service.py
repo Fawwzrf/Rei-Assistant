@@ -37,8 +37,15 @@ class LLMService:
             "content": user_message
         })
 
-        # Augment the list of messages sent to Ollama with RAG context
-        context_str = self.memory.query_context(user_message)
+        # --- OPTIMIZATION: Bypass RAG for short messages & Run Asynchronously ---
+        context_str = ""
+        # Hanya gunakan RAG jika pesan memiliki lebih dari 3 kata (bukan sekadar sapaan singkat)
+        if len(user_message.split()) > 3:
+            loop = asyncio.get_event_loop()
+            context_str = await loop.run_in_executor(
+                None, self.memory.query_context, user_message
+            )
+
         messages_to_send = list(self.conversation_history)
         
         if context_str:
@@ -105,11 +112,12 @@ class LLMService:
                 "content": clean_response
             })
 
-            # Keep conversation history manageable (last 20 exchanges)
-            if len(self.conversation_history) > 41:  # 1 system + 20 pairs
+            # Keep conversation history very small for fast Prompt Evaluation
+            # 1 system prompt + 10 pairs (user/assistant) = 21 messages
+            if len(self.conversation_history) > 21:
                 self.conversation_history = (
                     [self.conversation_history[0]]
-                    + self.conversation_history[-40:]
+                    + self.conversation_history[-20:]
                 )
 
             yield {

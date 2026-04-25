@@ -49,6 +49,12 @@ ws.on('disconnected', () => {
   setAvatarState('error');
 });
 
+ws.on('reconnecting', (attempt) => {
+  connectionStatus.textContent = `Reconnecting (${attempt}/10)...`;
+  connectionStatus.classList.remove('connected');
+  statusText.textContent = 'Menghubungkan...';
+});
+
 ws.on('error', (data) => {
   if (data?.message) {
     chat.addSystemMessage(`Error: ${data.message}`, 'error');

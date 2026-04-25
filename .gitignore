@@ -45,3 +45,9 @@ desktop.ini
 *.7z
 *.rar
 !backend/ollama/README.md # Keep readme if exists
+
+# Local Data & Models
+backend/data/
+backend/ollama/
+assets/tts-models/*.onnx
+assets/tts-models/*.onnx.json
