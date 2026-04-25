@@ -204,6 +204,7 @@ recorder.onAudioReady = (base64Data) => {
 // ─── Audio Player → Lip Sync & Text Sync ────────────────────────────────
 player.onPlayStart = (text) => {
   if (text) chat.appendToken(text);
+  live2d.setTrackingMode('speaking');
 };
 
 player.onAmplitude = (amplitude) => {
@@ -215,6 +216,7 @@ player.onPlayEnd = () => {
   setAvatarState('idle');
   live2d.setMouthOpen(0);
   chat.endStream(); // End stream only when audio completely finishes
+  live2d.setTrackingMode('idle');
 };
 
 // ─── Status Helpers ──────────────────────────────────────────────────────
@@ -253,6 +255,14 @@ function setAvatarState(state) {
 async function init() {
   console.log('🌟 Gemma-Aura initializing...');
 
+  // Track chat input focus for context-aware avatar tracking
+  chat.chatInput.addEventListener('focus', () => {
+    live2d.setTrackingMode('typing');
+  });
+  chat.chatInput.addEventListener('blur', () => {
+    live2d.setTrackingMode('idle');
+  });
+
   // Initialize Live2D avatar
   await live2d.init();
 
@@ -260,6 +270,7 @@ async function init() {
   const model = live2d.getModel();
   if (model) {
     expression.setModel(model);
+    live2d.setExpressionController(expression);
   }
 
   // Connect to backend

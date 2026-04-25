@@ -28,481 +28,574 @@ class Live2DManager {
       idleTimer: 0,
       breathPhase: 0,
     };
+
+    // Tracking state
+    this.trackingMode = 'idle'; // 'idle', 'typing', 'speaking'
+    this.mouseX = 0;
+    this.mouseY = 0;
+    this.targetX = 0;
+    this.targetY = 0;
+    this.currentX = 0;
+    this.currentY = 0;
+    this.dampening = 0.15;
+
+    // ─── PENGATURAN MANUAL POSISI TATAPAN ───────────────────────
+    // Atur angka X (kiri/kanan) dan Y (atas/bawah) di sini.
+    // Rentang: -1.0 hingga 1.0 (X positif = kanan, Y positif = atas/bawah tergantung model)
+    this.typingTarget = { x: 0.7, y: -0.7 }; // Posisi melirik chat
+    this.speakingTarget = { x: 0.0, y: 0.0 }; // Bawaan (0,0) menatap lurus ke depan
+
+    this._initMouseTracking();
+  }
+
+  _initMouseTracking() {
+    window.addEventListener('mousemove', (e) => {
+      // Normalize to -1.0 to 1.0 range
+      this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+      // Invert Y: Screen goes down, Live2D usually goes up for positive
+      this.mouseY = 1 - (e.clientY / window.innerHeight) * 2;
+    });
   }
 
   /**
    * Initialize the PixiJS application and load model.
    */
   async init() {
-    this._initFallbackAvatar();
+      this._initFallbackAvatar();
 
-    try {
-      window.PIXI = PIXI;
+      try {
+        window.PIXI = PIXI;
 
-      if (typeof window.Live2DCubismCore === 'undefined') {
-        console.warn('[Live2D] Live2DCubismCore not loaded — using canvas fallback.');
-        return;
+        if (typeof window.Live2DCubismCore === 'undefined') {
+          console.warn('[Live2D] Live2DCubismCore not loaded — using canvas fallback.');
+          return;
+        }
+
+        const { Live2DModel } = await import('pixi-live2d-display/cubism4');
+
+        const pixiCanvas = document.createElement('canvas');
+        pixiCanvas.style.position = 'absolute';
+        pixiCanvas.style.top = '0';
+        pixiCanvas.style.left = '0';
+        pixiCanvas.style.width = '100%';
+        pixiCanvas.style.height = '100%';
+        pixiCanvas.style.display = 'none';
+        pixiCanvas.style.pointerEvents = 'none';
+        const firstChild = this.canvas.parentElement.firstChild;
+        if (firstChild) {
+          this.canvas.parentElement.insertBefore(pixiCanvas, firstChild);
+        } else {
+          this.canvas.parentElement.appendChild(pixiCanvas);
+        }
+        this._pixiCanvas = pixiCanvas;
+        pixiCanvas.style.zIndex = '0';
+
+        const parent = this.canvas.parentElement;
+        this.app = new PIXI.Application({
+          view: pixiCanvas,
+          resizeTo: parent,
+          transparent: true,
+          backgroundAlpha: 0,
+        });
+
+        await this._loadLive2DModel(Live2DModel);
+        this.useFallback = false;
+        this.isLoaded = true;
+        console.log('[Live2D] Manager initialized successfully with WebGL SDK.');
+
+        this.canvas.style.display = 'none';
+        pixiCanvas.style.display = 'block';
+
+      } catch (e) {
+        console.error('[Live2D] Init WebGL failed, keeping canvas 2D fallback:', e);
+        this.useFallback = true;
+        if (this.app) {
+          try { this.app.destroy(true); } catch (_) { }
+          this.app = null;
+        }
+        if (this._pixiCanvas) {
+          this._pixiCanvas.remove();
+          this._pixiCanvas = null;
+        }
+        this.canvas.style.display = 'block';
+        this.isLoaded = true;
       }
-
-      const { Live2DModel } = await import('pixi-live2d-display/cubism4');
-
-      const pixiCanvas = document.createElement('canvas');
-      pixiCanvas.style.position = 'absolute';
-      pixiCanvas.style.top = '0';
-      pixiCanvas.style.left = '0';
-      pixiCanvas.style.width = '100%';
-      pixiCanvas.style.height = '100%';
-      pixiCanvas.style.display = 'none';
-      pixiCanvas.style.pointerEvents = 'none';
-      const firstChild = this.canvas.parentElement.firstChild;
-      if (firstChild) {
-        this.canvas.parentElement.insertBefore(pixiCanvas, firstChild);
-      } else {
-        this.canvas.parentElement.appendChild(pixiCanvas);
-      }
-      this._pixiCanvas = pixiCanvas;
-      pixiCanvas.style.zIndex = '0';
-
-      const parent = this.canvas.parentElement;
-      this.app = new PIXI.Application({
-        view: pixiCanvas,
-        resizeTo: parent,
-        transparent: true,
-        backgroundAlpha: 0,
-      });
-
-      await this._loadLive2DModel(Live2DModel);
-      this.useFallback = false;
-      this.isLoaded = true;
-      console.log('[Live2D] Manager initialized successfully with WebGL SDK.');
-
-      this.canvas.style.display = 'none';
-      pixiCanvas.style.display = 'block';
-
-    } catch (e) {
-      console.error('[Live2D] Init WebGL failed, keeping canvas 2D fallback:', e);
-      this.useFallback = true;
-      if (this.app) {
-        try { this.app.destroy(true); } catch(_) {}
-        this.app = null;
-      }
-      if (this._pixiCanvas) {
-        this._pixiCanvas.remove();
-        this._pixiCanvas = null;
-      }
-      this.canvas.style.display = 'block';
-      this.isLoaded = true;
     }
-  }
 
   /**
    * Attempt to load Live2D model with the SDK.
    */
   async _loadLive2DModel(Live2DModel) {
-    const modelPath = '/live2d/hiyori/Hiyori.model3.json';
-    
-    this.model = Live2DModel.fromSync(modelPath);
-    
-    this.model.on('error', (e) => {
-      console.error('[Live2D] Model loading error:', e);
-    });
-    
-    await new Promise((resolve, reject) => {
-      this.model.once('load', () => {
-        this.model.scale.set(0.4);
-        this.model.anchor.set(0.5, 0.5);
-        this.model.x = this.app.screen.width / 2;
-        this.model.y = this.app.screen.height * 1.1;
+      const modelPath = '/live2d/hiyori/Hiyori.model3.json';
 
-        this.app.stage.addChild(this.model);
+      this.model = Live2DModel.fromSync(modelPath);
 
-        this._currentMouthOpen = 0;
-        this.model.internalModel.on('beforeModelUpdate', () => {
-          try {
-            this.model.internalModel.coreModel.setParameterValueById(
-              'ParamMouthOpenY',
-              this._currentMouthOpen
-            );
-          } catch(_) {}
-        });
-
-        const errorHandler = (err) => {
-          reject(new Error('Render error (likely Cubism Core version mismatch): ' + (err?.message || err)));
-        };
-        this.app.renderer.on('error', errorHandler);
-        let firstFrameDone = false;
-        const tickCheck = () => {
-          if (firstFrameDone) return;
-          firstFrameDone = true;
-          this.app.ticker.remove(tickCheck);
-          this.app.renderer.off('error', errorHandler);
-          console.log('[Live2D] Model rendered first frame successfully');
-          resolve();
-        };
-        this.app.ticker.add(tickCheck, null, PIXI.UPDATE_PRIORITY.LOW);
-
-        console.log('[Live2D] Model loaded and added to stage');
+      this.model.on('error', (e) => {
+        console.error('[Live2D] Model loading error:', e);
       });
 
-      this.model.once('error', (e) => reject(e));
-      setTimeout(() => reject(new Error('Live2D model loading timed out after 15s')), 15000);
-    });
-  }
+      await new Promise((resolve, reject) => {
+        this.model.once('load', () => {
+          this.model.scale.set(0.4);
+          this.model.anchor.set(0.5, 0.5);
+          this.model.x = this.app.screen.width / 2;
+          this.model.y = this.app.screen.height * 1.1;
 
-  /**
-   * Initialize a beautiful fallback avatar when Live2D SDK isn't available.
-   */
-  _initFallbackAvatar() {
-    if (this.app) {
-      this.app.destroy(false);
-      this.app = null;
+          this.app.stage.addChild(this.model);
+
+          this._currentMouthOpen = 0;
+          this.model.internalModel.on('beforeModelUpdate', () => {
+            try {
+              this.model.internalModel.coreModel.setParameterValueById(
+                'ParamMouthOpenY',
+                this._currentMouthOpen
+              );
+
+              // Update tracking targets and lerp
+              this._updateTracking();
+
+              // Apply tracking parameters safely
+              const ex = isNaN(this.currentX) ? 0 : this.currentX;
+              const ey = isNaN(this.currentY) ? 0 : this.currentY;
+              this.model.internalModel.coreModel.setParameterValueById('ParamEyeBallX', ex);
+              this.model.internalModel.coreModel.setParameterValueById('ParamEyeBallY', ey);
+              this.model.internalModel.coreModel.setParameterValueById('ParamAngleX', ex * 30);
+              this.model.internalModel.coreModel.setParameterValueById('ParamAngleY', ey * 30);
+
+              // Apply Expressions
+              if (this.expressionController) {
+                this.expressionController.applyToModel(this.model.internalModel.coreModel);
+              }
+
+            } catch (_) { }
+          });
+
+          const errorHandler = (err) => {
+            reject(new Error('Render error (likely Cubism Core version mismatch): ' + (err?.message || err)));
+          };
+          this.app.renderer.on('error', errorHandler);
+          let firstFrameDone = false;
+          const tickCheck = () => {
+            if (firstFrameDone) return;
+            firstFrameDone = true;
+            this.app.ticker.remove(tickCheck);
+            this.app.renderer.off('error', errorHandler);
+            console.log('[Live2D] Model rendered first frame successfully');
+            resolve();
+          };
+          this.app.ticker.add(tickCheck, null, PIXI.UPDATE_PRIORITY.LOW);
+
+          console.log('[Live2D] Model loaded and added to stage');
+        });
+
+        this.model.once('error', (e) => reject(e));
+        setTimeout(() => reject(new Error('Live2D model loading timed out after 15s')), 15000);
+      });
     }
-    this.canvas.style.backgroundColor = 'transparent';
 
-    console.log('[Live2D] Fallback avatar active — using canvas rendering');
-    this._startFallbackRendering();
-  }
-
-  /**
-   * Start fallback canvas-based avatar rendering.
-   */
-  _startFallbackRendering() {
-    const ctx = this.canvas.getContext('2d');
-    if (!ctx) return;
-
-    const resize = () => {
-      const parent = this.canvas.parentElement;
-      this.canvas.width = parent.clientWidth * (window.devicePixelRatio || 1);
-      this.canvas.height = parent.clientHeight * (window.devicePixelRatio || 1);
-      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-    };
-    resize();
-    window.addEventListener('resize', resize);
-
-    const drawAvatar = (timestamp) => {
-      const w = this.canvas.width / (window.devicePixelRatio || 1);
-      const h = this.canvas.height / (window.devicePixelRatio || 1);
-      const cx = w / 2;
-      const cy = h / 2 - 20;
-
-      ctx.clearRect(0, 0, w, h);
-
-      const state = this._fallbackState;
-      state.breathPhase += 0.02;
-      state.blinkTimer += 1;
-      state.idleTimer += 0.01;
-
-      // Breathing animation
-      const breathOffset = Math.sin(state.breathPhase) * 3;
-
-      // Random blinking
-      let eyeScale = 1;
-      if (state.blinkTimer > 180 && state.blinkTimer < 190) {
-        eyeScale = Math.max(0, 1 - Math.sin(((state.blinkTimer - 180) / 10) * Math.PI));
+    /**
+     * Initialize a beautiful fallback avatar when Live2D SDK isn't available.
+     */
+    _initFallbackAvatar() {
+      if (this.app) {
+        this.app.destroy(false);
+        this.app = null;
       }
-      if (state.blinkTimer > 190) {
-        state.blinkTimer = Math.random() * -60;
-      }
+      this.canvas.style.backgroundColor = 'transparent';
 
-      // Subtle idle sway
-      const swayX = Math.sin(state.idleTimer * 0.5) * 5;
-      const swayY = Math.cos(state.idleTimer * 0.7) * 3;
+      console.log('[Live2D] Fallback avatar active — using canvas rendering');
+      this._startFallbackRendering();
+    }
 
-      // ─── Draw Body ─────────────────────────────────
-      // Glow effect behind avatar
-      const glow = ctx.createRadialGradient(cx, cy + 40, 30, cx, cy + 40, 200);
-      glow.addColorStop(0, 'rgba(108, 99, 255, 0.15)');
-      glow.addColorStop(1, 'rgba(108, 99, 255, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, w, h);
+    /**
+     * Start fallback canvas-based avatar rendering.
+     */
+    _startFallbackRendering() {
+      const ctx = this.canvas.getContext('2d');
+      if (!ctx) return;
 
-      ctx.save();
-      ctx.translate(cx + swayX, cy + breathOffset + swayY);
+      const resize = () => {
+        const parent = this.canvas.parentElement;
+        this.canvas.width = parent.clientWidth * (window.devicePixelRatio || 1);
+        this.canvas.height = parent.clientHeight * (window.devicePixelRatio || 1);
+        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      };
+      resize();
+      window.addEventListener('resize', resize);
 
-      // Hair (back)
-      ctx.fillStyle = '#2D1B69';
-      ctx.beginPath();
-      ctx.ellipse(0, -35, 75, 85, 0, Math.PI, 0);
-      ctx.fill();
+      const drawAvatar = (timestamp) => {
+        const w = this.canvas.width / (window.devicePixelRatio || 1);
+        const h = this.canvas.height / (window.devicePixelRatio || 1);
+        const cx = w / 2;
+        const cy = h / 2 - 20;
 
-      // Body / dress
-      const dressGrad = ctx.createLinearGradient(-50, 60, 50, 180);
-      dressGrad.addColorStop(0, '#4A3AFF');
-      dressGrad.addColorStop(1, '#6C63FF');
-      ctx.fillStyle = dressGrad;
-      ctx.beginPath();
-      ctx.moveTo(-35, 55);
-      ctx.quadraticCurveTo(-55, 160, -45, 200);
-      ctx.lineTo(45, 200);
-      ctx.quadraticCurveTo(55, 160, 35, 55);
-      ctx.closePath();
-      ctx.fill();
+        ctx.clearRect(0, 0, w, h);
 
-      // Neck
-      ctx.fillStyle = '#FFE0D0';
-      ctx.fillRect(-10, 42, 20, 18);
+        const state = this._fallbackState;
+        state.breathPhase += 0.02;
+        state.blinkTimer += 1;
+        state.idleTimer += 0.01;
 
-      // Head
-      const headGrad = ctx.createRadialGradient(-5, -10, 10, 0, -5, 55);
-      headGrad.addColorStop(0, '#FFF0E6');
-      headGrad.addColorStop(1, '#FFD8C4');
-      ctx.fillStyle = headGrad;
-      ctx.beginPath();
-      ctx.ellipse(0, -5, 48, 52, 0, 0, Math.PI * 2);
-      ctx.fill();
+        // Breathing animation
+        const breathOffset = Math.sin(state.breathPhase) * 3;
 
-      // Hair (front)
-      ctx.fillStyle = '#3D2B79';
-      ctx.beginPath();
-      ctx.ellipse(0, -38, 52, 30, 0, Math.PI, 0);
-      ctx.fill();
+        // Random blinking
+        let eyeScale = 1;
+        if (state.blinkTimer > 180 && state.blinkTimer < 190) {
+          eyeScale = Math.max(0, 1 - Math.sin(((state.blinkTimer - 180) / 10) * Math.PI));
+        }
+        if (state.blinkTimer > 190) {
+          state.blinkTimer = Math.random() * -60;
+        }
 
-      // Bangs
-      ctx.fillStyle = '#3D2B79';
-      ctx.beginPath();
-      ctx.moveTo(-42, -25);
-      ctx.quadraticCurveTo(-35, 0, -30, 5);
-      ctx.lineTo(-20, -15);
-      ctx.quadraticCurveTo(-15, -25, 0, -25);
-      ctx.quadraticCurveTo(15, -25, 20, -15);
-      ctx.lineTo(30, 5);
-      ctx.quadraticCurveTo(35, 0, 42, -25);
-      ctx.lineTo(42, -45);
-      ctx.quadraticCurveTo(0, -60, -42, -45);
-      ctx.closePath();
-      ctx.fill();
+        // Subtle idle sway
+        const swayX = Math.sin(state.idleTimer * 0.5) * 5;
+        const swayY = Math.cos(state.idleTimer * 0.7) * 3;
 
-      // Side hair
-      ctx.fillStyle = '#2D1B69';
-      ctx.beginPath();
-      ctx.moveTo(-48, -15);
-      ctx.quadraticCurveTo(-58, 30, -52, 90);
-      ctx.quadraticCurveTo(-48, 60, -42, 20);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(48, -15);
-      ctx.quadraticCurveTo(58, 30, 52, 90);
-      ctx.quadraticCurveTo(48, 60, 42, 20);
-      ctx.closePath();
-      ctx.fill();
+        // ─── Draw Body ─────────────────────────────────
+        // Glow effect behind avatar
+        const glow = ctx.createRadialGradient(cx, cy + 40, 30, cx, cy + 40, 200);
+        glow.addColorStop(0, 'rgba(108, 99, 255, 0.15)');
+        glow.addColorStop(1, 'rgba(108, 99, 255, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, w, h);
 
-      // Eyes
-      const eyeY = -5;
-      const eyeSpacing = 18;
+        ctx.save();
+        ctx.translate(cx + swayX, cy + breathOffset + swayY);
 
-      // Eye whites
-      ctx.fillStyle = 'white';
-      ctx.beginPath();
-      ctx.ellipse(-eyeSpacing, eyeY, 10, 7 * eyeScale, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(eyeSpacing, eyeY, 10, 7 * eyeScale, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (eyeScale > 0.2) {
-        // Irises
-        const irisGrad = ctx.createRadialGradient(-eyeSpacing, eyeY, 1, -eyeSpacing, eyeY, 6);
-        irisGrad.addColorStop(0, '#8B5CF6');
-        irisGrad.addColorStop(0.7, '#6C63FF');
-        irisGrad.addColorStop(1, '#4338CA');
-        ctx.fillStyle = irisGrad;
+        // Hair (back)
+        ctx.fillStyle = '#2D1B69';
         ctx.beginPath();
-        ctx.ellipse(-eyeSpacing, eyeY, 6, 5.5 * eyeScale, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, -35, 75, 85, 0, Math.PI, 0);
         ctx.fill();
 
-        const irisGrad2 = ctx.createRadialGradient(eyeSpacing, eyeY, 1, eyeSpacing, eyeY, 6);
-        irisGrad2.addColorStop(0, '#8B5CF6');
-        irisGrad2.addColorStop(0.7, '#6C63FF');
-        irisGrad2.addColorStop(1, '#4338CA');
-        ctx.fillStyle = irisGrad2;
+        // Body / dress
+        const dressGrad = ctx.createLinearGradient(-50, 60, 50, 180);
+        dressGrad.addColorStop(0, '#4A3AFF');
+        dressGrad.addColorStop(1, '#6C63FF');
+        ctx.fillStyle = dressGrad;
         ctx.beginPath();
-        ctx.ellipse(eyeSpacing, eyeY, 6, 5.5 * eyeScale, 0, 0, Math.PI * 2);
+        ctx.moveTo(-35, 55);
+        ctx.quadraticCurveTo(-55, 160, -45, 200);
+        ctx.lineTo(45, 200);
+        ctx.quadraticCurveTo(55, 160, 35, 55);
+        ctx.closePath();
         ctx.fill();
 
-        // Pupils
-        ctx.fillStyle = '#1E1040';
+        // Neck
+        ctx.fillStyle = '#FFE0D0';
+        ctx.fillRect(-10, 42, 20, 18);
+
+        // Head
+        const headGrad = ctx.createRadialGradient(-5, -10, 10, 0, -5, 55);
+        headGrad.addColorStop(0, '#FFF0E6');
+        headGrad.addColorStop(1, '#FFD8C4');
+        ctx.fillStyle = headGrad;
         ctx.beginPath();
-        ctx.ellipse(-eyeSpacing, eyeY, 3, 3 * eyeScale, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(eyeSpacing, eyeY, 3, 3 * eyeScale, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, -5, 48, 52, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Eye highlights
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        // Hair (front)
+        ctx.fillStyle = '#3D2B79';
         ctx.beginPath();
-        ctx.ellipse(-eyeSpacing - 2, eyeY - 2, 2, 1.5 * eyeScale, -0.3, 0, Math.PI * 2);
+        ctx.ellipse(0, -38, 52, 30, 0, Math.PI, 0);
         ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(eyeSpacing - 2, eyeY - 2, 2, 1.5 * eyeScale, -0.3, 0, Math.PI * 2);
-        ctx.fill();
-      }
 
-      // Expression-based features
-      const expr = state.expression;
-
-      // Blush (happy/neutral)
-      if (expr === 'happy' || expr === 'neutral') {
-        ctx.fillStyle = 'rgba(255, 130, 150, 0.2)';
+        // Bangs
+        ctx.fillStyle = '#3D2B79';
         ctx.beginPath();
-        ctx.ellipse(-25, 12, 10, 5, 0, 0, Math.PI * 2);
+        ctx.moveTo(-42, -25);
+        ctx.quadraticCurveTo(-35, 0, -30, 5);
+        ctx.lineTo(-20, -15);
+        ctx.quadraticCurveTo(-15, -25, 0, -25);
+        ctx.quadraticCurveTo(15, -25, 20, -15);
+        ctx.lineTo(30, 5);
+        ctx.quadraticCurveTo(35, 0, 42, -25);
+        ctx.lineTo(42, -45);
+        ctx.quadraticCurveTo(0, -60, -42, -45);
+        ctx.closePath();
+        ctx.fill();
+
+        // Side hair
+        ctx.fillStyle = '#2D1B69';
+        ctx.beginPath();
+        ctx.moveTo(-48, -15);
+        ctx.quadraticCurveTo(-58, 30, -52, 90);
+        ctx.quadraticCurveTo(-48, 60, -42, 20);
+        ctx.closePath();
         ctx.fill();
         ctx.beginPath();
-        ctx.ellipse(25, 12, 10, 5, 0, 0, Math.PI * 2);
+        ctx.moveTo(48, -15);
+        ctx.quadraticCurveTo(58, 30, 52, 90);
+        ctx.quadraticCurveTo(48, 60, 42, 20);
+        ctx.closePath();
         ctx.fill();
-      }
 
-      // Mouth
-      const mouthY = 18;
-      const mouthOpen = state.mouthOpen;
-      ctx.strokeStyle = '#D4726A';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
+        // Eyes
+        const eyeY = -5;
+        const eyeSpacing = 18;
 
-      if (mouthOpen > 0.1) {
-        // Open mouth
-        ctx.fillStyle = '#8B3A3A';
+        // Eye whites
+        ctx.fillStyle = 'white';
         ctx.beginPath();
-        ctx.ellipse(0, mouthY, 8, 4 + mouthOpen * 8, 0, 0, Math.PI * 2);
+        ctx.ellipse(-eyeSpacing, eyeY, 10, 7 * eyeScale, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(eyeSpacing, eyeY, 10, 7 * eyeScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (eyeScale > 0.2) {
+          // Irises
+          const irisGrad = ctx.createRadialGradient(-eyeSpacing, eyeY, 1, -eyeSpacing, eyeY, 6);
+          irisGrad.addColorStop(0, '#8B5CF6');
+          irisGrad.addColorStop(0.7, '#6C63FF');
+          irisGrad.addColorStop(1, '#4338CA');
+          ctx.fillStyle = irisGrad;
+          ctx.beginPath();
+          ctx.ellipse(-eyeSpacing, eyeY, 6, 5.5 * eyeScale, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          const irisGrad2 = ctx.createRadialGradient(eyeSpacing, eyeY, 1, eyeSpacing, eyeY, 6);
+          irisGrad2.addColorStop(0, '#8B5CF6');
+          irisGrad2.addColorStop(0.7, '#6C63FF');
+          irisGrad2.addColorStop(1, '#4338CA');
+          ctx.fillStyle = irisGrad2;
+          ctx.beginPath();
+          ctx.ellipse(eyeSpacing, eyeY, 6, 5.5 * eyeScale, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Pupils
+          ctx.fillStyle = '#1E1040';
+          ctx.beginPath();
+          ctx.ellipse(-eyeSpacing, eyeY, 3, 3 * eyeScale, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(eyeSpacing, eyeY, 3, 3 * eyeScale, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Eye highlights
+          ctx.fillStyle = 'rgba(255,255,255,0.9)';
+          ctx.beginPath();
+          ctx.ellipse(-eyeSpacing - 2, eyeY - 2, 2, 1.5 * eyeScale, -0.3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(eyeSpacing - 2, eyeY - 2, 2, 1.5 * eyeScale, -0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Expression-based features
+        const expr = state.expression;
+
+        // Blush (happy/neutral)
+        if (expr === 'happy' || expr === 'neutral') {
+          ctx.fillStyle = 'rgba(255, 130, 150, 0.2)';
+          ctx.beginPath();
+          ctx.ellipse(-25, 12, 10, 5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(25, 12, 10, 5, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Mouth
+        const mouthY = 18;
+        const mouthOpen = state.mouthOpen;
         ctx.strokeStyle = '#D4726A';
-        ctx.stroke();
-      } else if (expr === 'happy') {
-        // Happy smile
-        ctx.beginPath();
-        ctx.arc(0, mouthY - 3, 10, 0.1 * Math.PI, 0.9 * Math.PI);
-        ctx.stroke();
-      } else if (expr === 'sad') {
-        // Sad frown
-        ctx.beginPath();
-        ctx.arc(0, mouthY + 8, 10, 1.1 * Math.PI, 1.9 * Math.PI);
-        ctx.stroke();
-      } else {
-        // Neutral small smile
-        ctx.beginPath();
-        ctx.arc(0, mouthY - 2, 7, 0.15 * Math.PI, 0.85 * Math.PI);
-        ctx.stroke();
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+
+        if (mouthOpen > 0.1) {
+          // Open mouth
+          ctx.fillStyle = '#8B3A3A';
+          ctx.beginPath();
+          ctx.ellipse(0, mouthY, 8, 4 + mouthOpen * 8, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#D4726A';
+          ctx.stroke();
+        } else if (expr === 'happy') {
+          // Happy smile
+          ctx.beginPath();
+          ctx.arc(0, mouthY - 3, 10, 0.1 * Math.PI, 0.9 * Math.PI);
+          ctx.stroke();
+        } else if (expr === 'sad') {
+          // Sad frown
+          ctx.beginPath();
+          ctx.arc(0, mouthY + 8, 10, 1.1 * Math.PI, 1.9 * Math.PI);
+          ctx.stroke();
+        } else {
+          // Neutral small smile
+          ctx.beginPath();
+          ctx.arc(0, mouthY - 2, 7, 0.15 * Math.PI, 0.85 * Math.PI);
+          ctx.stroke();
+        }
+
+        // Eyebrows
+        ctx.strokeStyle = '#3D2B79';
+        ctx.lineWidth = 2.5;
+        const browY = -20;
+
+        if (expr === 'surprised') {
+          ctx.beginPath();
+          ctx.arc(-eyeSpacing, browY - 5, 8, Math.PI * 1.1, Math.PI * 1.9);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(eyeSpacing, browY - 5, 8, Math.PI * 1.1, Math.PI * 1.9);
+          ctx.stroke();
+        } else if (expr === 'angry') {
+          ctx.beginPath();
+          ctx.moveTo(-eyeSpacing - 8, browY - 2);
+          ctx.lineTo(-eyeSpacing + 8, browY + 3);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(eyeSpacing + 8, browY - 2);
+          ctx.lineTo(eyeSpacing - 8, browY + 3);
+          ctx.stroke();
+        } else if (expr === 'sad') {
+          ctx.beginPath();
+          ctx.moveTo(-eyeSpacing - 8, browY + 2);
+          ctx.lineTo(-eyeSpacing + 8, browY - 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(eyeSpacing + 8, browY + 2);
+          ctx.lineTo(eyeSpacing - 8, browY - 2);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(-eyeSpacing - 8, browY);
+          ctx.quadraticCurveTo(-eyeSpacing, browY - 3, -eyeSpacing + 8, browY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(eyeSpacing - 8, browY);
+          ctx.quadraticCurveTo(eyeSpacing, browY - 3, eyeSpacing + 8, browY);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+
+        // Name label below avatar
+        ctx.fillStyle = 'rgba(108, 99, 255, 0.8)';
+        ctx.font = '600 16px Outfit, Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Rei', cx + swayX, cy + 230 + breathOffset);
+
+        ctx.fillStyle = 'rgba(155, 155, 184, 0.6)';
+        ctx.font = '400 11px Inter, sans-serif';
+        ctx.fillText('AI Assistant', cx + swayX, cy + 248 + breathOffset);
+
+        this._fallbackAnimFrame = requestAnimationFrame(drawAvatar);
+      };
+
+      drawAvatar(0);
+    }
+
+    /**
+     * Register Expression Controller
+     */
+    setExpressionController(exprCtrl) {
+      this.expressionController = exprCtrl;
+    }
+
+    /**
+     * Calculate and apply smooth tracking
+     */
+    _updateTracking() {
+      // Determine target based on mode
+      if (this.trackingMode === 'idle') {
+        this.targetX = this.mouseX || 0;
+        this.targetY = this.mouseY || 0;
+      } else if (this.trackingMode === 'typing') {
+        // Bottom right (chat input location)
+        this.targetX = this.typingTarget.x;
+        this.targetY = this.typingTarget.y;
+      } else if (this.trackingMode === 'speaking') {
+        // Eye contact (center)
+        this.targetX = this.speakingTarget.x;
+        this.targetY = this.speakingTarget.y;
       }
 
-      // Eyebrows
-      ctx.strokeStyle = '#3D2B79';
-      ctx.lineWidth = 2.5;
-      const browY = -20;
+      // Linear Interpolation (Lerp) for smooth movement
+      let dX = (this.targetX - this.currentX) * this.dampening;
+      let dY = (this.targetY - this.currentY) * this.dampening;
 
-      if (expr === 'surprised') {
-        ctx.beginPath();
-        ctx.arc(-eyeSpacing, browY - 5, 8, Math.PI * 1.1, Math.PI * 1.9);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(eyeSpacing, browY - 5, 8, Math.PI * 1.1, Math.PI * 1.9);
-        ctx.stroke();
-      } else if (expr === 'angry') {
-        ctx.beginPath();
-        ctx.moveTo(-eyeSpacing - 8, browY - 2);
-        ctx.lineTo(-eyeSpacing + 8, browY + 3);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(eyeSpacing + 8, browY - 2);
-        ctx.lineTo(eyeSpacing - 8, browY + 3);
-        ctx.stroke();
-      } else if (expr === 'sad') {
-        ctx.beginPath();
-        ctx.moveTo(-eyeSpacing - 8, browY + 2);
-        ctx.lineTo(-eyeSpacing + 8, browY - 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(eyeSpacing + 8, browY + 2);
-        ctx.lineTo(eyeSpacing - 8, browY - 2);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(-eyeSpacing - 8, browY);
-        ctx.quadraticCurveTo(-eyeSpacing, browY - 3, -eyeSpacing + 8, browY);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(eyeSpacing - 8, browY);
-        ctx.quadraticCurveTo(eyeSpacing, browY - 3, eyeSpacing + 8, browY);
-        ctx.stroke();
-      }
+      // Prevent NaN propagation
+      if (isNaN(dX)) dX = 0;
+      if (isNaN(dY)) dY = 0;
 
-      ctx.restore();
+      this.currentX += dX;
+      this.currentY += dY;
 
-      // Name label below avatar
-      ctx.fillStyle = 'rgba(108, 99, 255, 0.8)';
-      ctx.font = '600 16px Outfit, Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Rei', cx + swayX, cy + 230 + breathOffset);
-
-      ctx.fillStyle = 'rgba(155, 155, 184, 0.6)';
-      ctx.font = '400 11px Inter, sans-serif';
-      ctx.fillText('AI Assistant', cx + swayX, cy + 248 + breathOffset);
-
-      this._fallbackAnimFrame = requestAnimationFrame(drawAvatar);
-    };
-
-    drawAvatar(0);
-  }
-
-  /**
-   * Update loop (for Live2D model).
-   */
-  _update(ticker) {
-    if (this.model && !this.useFallback) {
-      // Live2D model update handled by the plugin
+      if (isNaN(this.currentX)) this.currentX = 0;
+      if (isNaN(this.currentY)) this.currentY = 0;
     }
-  }
 
-  /**
-   * Set expression on the model.
-   */
-  setExpression(expressionName) {
-    if (this.useFallback) {
-      this._fallbackState.expression = expressionName;
-      return;
-    }
-    // For the real Live2D model, set expression via the model API
-    if (this.model) {
-      try {
-        this.model.expression(expressionName);
-      } catch(e) {
-        // Expression name may not exist, ignore
+    /**
+     * Set the context tracking mode
+     */
+    setTrackingMode(mode) {
+      if (['idle', 'typing', 'speaking'].includes(mode)) {
+        this.trackingMode = mode;
       }
     }
-  }
 
-  /**
-   * Set mouth open value (0.0 – 1.0) for lip-sync.
-   * Works for both the canvas fallback and the real Live2D WebGL model.
-   */
-  setMouthOpen(value) {
-    if (this.useFallback) {
-      this._fallbackState.mouthOpen = value;
-      return;
+    /**
+     * Update loop (for Live2D model).
+     */
+    _update(ticker) {
+      if (this.model && !this.useFallback) {
+        // Live2D model update handled by the plugin
+      }
     }
-    // Store value; the PIXI ticker applies it every frame to prevent it
-    // being overridden by the model's internal motion update cycle.
-    this._currentMouthOpen = value;
-  }
 
-  /**
-   * Get the Live2D model (for expression controller).
-   */
-  getModel() {
-    return this.model;
-  }
+    /**
+     * Set expression on the model.
+     */
+    setExpression(expressionName) {
+      if (this.useFallback) {
+        this._fallbackState.expression = expressionName;
+        return;
+      }
+      // For the real Live2D model, set expression via the model API
+      if (this.model) {
+        try {
+          this.model.expression(expressionName);
+        } catch (e) {
+          // Expression name may not exist, ignore
+        }
+      }
+    }
 
-  /**
-   * Cleanup.
-   */
-  destroy() {
-    if (this._fallbackAnimFrame) {
-      cancelAnimationFrame(this._fallbackAnimFrame);
+    /**
+     * Set mouth open value (0.0 – 1.0) for lip-sync.
+     * Works for both the canvas fallback and the real Live2D WebGL model.
+     */
+    setMouthOpen(value) {
+      if (this.useFallback) {
+        this._fallbackState.mouthOpen = value;
+        return;
+      }
+      // Store value; the PIXI ticker applies it every frame to prevent it
+      // being overridden by the model's internal motion update cycle.
+      this._currentMouthOpen = value;
     }
-    if (this.app) {
-      this.app.destroy(true);
+
+    /**
+     * Get the Live2D model (for expression controller).
+     */
+    getModel() {
+      return this.model;
+    }
+
+    /**
+     * Cleanup.
+     */
+    destroy() {
+      if (this._fallbackAnimFrame) {
+        cancelAnimationFrame(this._fallbackAnimFrame);
+      }
+      if (this.app) {
+        this.app.destroy(true);
+      }
     }
   }
-}
 
 export default Live2DManager;

@@ -18,13 +18,12 @@ class ExpressionController {
     this.neutralParams = {
       ParamEyeLSmile: 0,
       ParamEyeRSmile: 0,
-      ParamMouthForm: 0,
+      ParamMouthForm: 1, // 1 = smile during idle
       ParamCheek: 0,
       ParamBrowLY: 0,
       ParamBrowRY: 0,
       ParamEyeLOpen: 1,
       ParamEyeROpen: 1,
-      ParamMouthOpenY: 0,
       ParamBrowLAngle: 0,
       ParamBrowRAngle: 0,
       ParamEyeBallX: 0,
@@ -51,7 +50,6 @@ class ExpressionController {
         ParamEyeROpen: 1.3,
         ParamBrowLY: 1.0,
         ParamBrowRY: 1.0,
-        ParamMouthOpenY: 0.8,
       },
       angry: {
         ParamBrowLAngle: -1.0,
@@ -142,9 +140,6 @@ class ExpressionController {
       const startValue = this.startParams[param] ?? this.neutralParams[param] ?? 0;
       const currentValue = startValue + (targetValue - startValue) * eased;
       this.currentParams[param] = currentValue;
-
-      // Apply to Live2D model
-      this._setParam(param, currentValue);
     }
 
     if (progress < 1) {
@@ -153,18 +148,30 @@ class ExpressionController {
   }
 
   /**
-   * Set a parameter on the Live2D model.
+   * Apply current interpolated parameters to the Live2D core model.
+   * This MUST be called inside the model's beforeModelUpdate hook.
    */
-  _setParam(paramId, value) {
-    if (!this.model) return;
-
-    try {
-      const coreModel = this.model.internalModel?.coreModel;
-      if (coreModel) {
-        coreModel.setParameterValueById(paramId, value);
+  applyToModel(coreModel) {
+    if (!coreModel) return;
+    for (const [param, value] of Object.entries(this.currentParams)) {
+      // Ignore tracking and mouth open params (handled by Live2DManager & LipSync)
+      if (
+        param === 'ParamEyeBallX' || 
+        param === 'ParamEyeBallY' || 
+        param === 'ParamMouthOpenY'
+      ) continue;
+      
+      // Let the internal blinker work when eyes are supposed to be fully open (neutral)
+      if ((param === 'ParamEyeLOpen' || param === 'ParamEyeROpen') && value === 1) {
+        continue;
       }
-    } catch (e) {
-      // Silently ignore missing parameters
+      
+      // Safety check to prevent NaN WASM crashes
+      if (isNaN(value)) continue;
+
+      try {
+        coreModel.setParameterValueById(param, value);
+      } catch (e) {}
     }
   }
 
