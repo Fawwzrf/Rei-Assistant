@@ -289,18 +289,18 @@ async def warmup_models():
             ],
             keep_alive="10m"
         )
-        print("[Warmup] [OK] LLM (Gemma) & System Prompt berhasil dimuat ke VRAM/Cache.")
-    except Exception as e:
-        print(f"[Warmup] [FAIL] LLM warmup gagal: {e}")
+        print("--- Warmup LLM OK ---")
+    except Exception:
+        print("--- Warmup LLM FAILED ---")
         
     # 2. Warmup TTS (Piper)
     if tts_service.is_available():
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, tts_service.synthesize, "siap")
-            print("[Warmup] [OK] TTS (Piper) berhasil dimuat ke Memori.")
-        except Exception as e:
-            print(f"[Warmup] [FAIL] TTS warmup gagal: {e}")
+            print("--- Warmup TTS OK ---")
+        except Exception:
+            print("--- Warmup TTS FAILED ---")
 
 @app.on_event("startup")
 async def startup():
@@ -316,18 +316,17 @@ async def startup():
     else:
         print(f"[LLM] [FAIL] Ollama not available! Run: ollama pull {llm_service.model}")
 
+    # Jalankan seluruh proses berat di background agar server cepat siap
+    asyncio.create_task(warmup_models())
+    
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, llm_service.memory.ingest_documents)
+
     # Lazy-load STT (will load on first request)
-    print(f"[STT] Faster-Whisper ({stt_service.__class__.__name__}) ready (lazy load)")
+    print("STT Ready")
 
     # Try loading TTS
     tts_service.load_model()
-    
-    # Ingest any local documents for RAG
-    llm_service.memory.ingest_documents()
-
-    # Jalankan proses pemanasan (warmup) secara asinkron di background
-    # sehingga tidak memblokir server FastAPI untuk segera menerima koneksi WebSocket
-    asyncio.create_task(warmup_models())
 
     print("=" * 50)
     print(f"  Server ready at ws://{HOST}:{PORT}/ws")
