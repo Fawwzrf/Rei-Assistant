@@ -48,6 +48,9 @@ async def health_check():
 
 
 # ─── WebSocket Endpoint ──────────────────────────────────────────────────────
+is_warming_up = True
+active_websockets = set()
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -68,7 +71,11 @@ async def websocket_endpoint(websocket: WebSocket):
     - {"type": "error", "message": "..."}
     """
     await websocket.accept()
+    active_websockets.add(websocket)
     print("[WS] Client connected")
+
+    if is_warming_up:
+        await websocket.send_json({"type": "status", "state": "Memanaskan AI (~10s)..."})
 
     try:
         while True:
@@ -110,7 +117,8 @@ async def websocket_endpoint(websocket: WebSocket):
             })
         except Exception:
             pass
-
+    finally:
+        active_websockets.discard(websocket)
 
 import asyncio
 
@@ -178,8 +186,9 @@ async def handle_chat(websocket: WebSocket, text: str):
             
             sentence_buffer += token
 
-            # Check if we hit a sentence boundary and have enough text for TTS trigger
-            if any(punc in token for punc in ['. ', '? ', '! ', '\n']) and len(sentence_buffer.strip()) > 2:
+            # Periksa apakah kita mencapai batas kalimat atau klausa (titik, koma, tanya, seru)
+            # Menambahkan koma (', ') agar TTS terpicu lebih awal (per klausa) tanpa menunggu satu kalimat penuh
+            if any(punc in token for punc in ['. ', '? ', '! ', '\n', ', ']) and len(sentence_buffer.strip()) > 2:
                 clean_sentence = sentence_buffer.strip()
                 sentence_buffer = ""
 
@@ -292,6 +301,16 @@ async def warmup_models():
         print("--- Warmup LLM OK ---")
     except Exception:
         print("--- Warmup LLM FAILED ---")
+        
+    global is_warming_up
+    is_warming_up = False
+    
+    # Beritahu semua client bahwa warmup selesai
+    for ws in list(active_websockets):
+        try:
+            await ws.send_json({"type": "status", "state": "idle"})
+        except Exception:
+            pass
         
     # 2. Warmup TTS (Piper)
     if tts_service.is_available():

@@ -36,22 +36,34 @@ document.getElementById('btnClose')?.addEventListener('click', () => {
   window.electronAPI?.close();
 });
 
-// ─── WebSocket Event Handlers ────────────────────────────────────────────
+let hasConnectedOnce = false;
+
 ws.on('connected', () => {
+  hasConnectedOnce = true;
   connectionStatus.textContent = 'Connected';
   connectionStatus.classList.add('connected');
   setAvatarState('idle');
 });
 
 ws.on('disconnected', () => {
-  connectionStatus.textContent = 'Disconnected';
   connectionStatus.classList.remove('connected');
+  if (!hasConnectedOnce) {
+    statusText.textContent = 'Menyalakan Sistem...';
+    connectionStatus.textContent = 'Starting...';
+    return;
+  }
+  connectionStatus.textContent = 'Disconnected';
   setAvatarState('error');
 });
 
 ws.on('reconnecting', (attempt) => {
-  connectionStatus.textContent = `Reconnecting (${attempt}/10)...`;
   connectionStatus.classList.remove('connected');
+  if (!hasConnectedOnce) {
+    statusText.textContent = 'Menyalakan Sistem...';
+    connectionStatus.textContent = `Starting... (${attempt}/10)`;
+    return;
+  }
+  connectionStatus.textContent = `Reconnecting (${attempt}/10)...`;
   statusText.textContent = 'Menghubungkan...';
 });
 
