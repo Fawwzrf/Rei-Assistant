@@ -27,15 +27,19 @@ class LLMService:
         """Reset conversation history, keeping system prompt."""
         self._init_conversation()
 
-    async def chat_stream(self, user_message: str):
+    async def chat_stream(self, user_message: str, image_b64: str = None):
         """
-        Stream chat response from Gemma 4.
+        Stream chat response from Gemma 4, supporting Vision and Tools.
         Yields dict with 'token' and optionally 'expression'.
         """
-        self.conversation_history.append({
+        msg_payload = {
             "role": "user",
             "content": user_message
-        })
+        }
+        if image_b64:
+            msg_payload["images"] = [image_b64]
+            
+        self.conversation_history.append(msg_payload)
 
         # --- OPTIMIZATION: Bypass RAG for short messages & Run Asynchronously ---
         context_str = ""
@@ -54,6 +58,8 @@ class LLMService:
                 "role": "user",
                 "content": augmented_content
             }
+            if image_b64:
+                messages_to_send[-1]["images"] = [image_b64]
 
         full_response = ""
 
@@ -65,22 +71,23 @@ class LLMService:
             )
 
             async for chunk in stream:
-                token = chunk["message"]["content"]
-                full_response += token
+                if "message" in chunk and "content" in chunk["message"]:
+                    token = chunk["message"]["content"]
+                    full_response += token
 
-                # Check if we have a complete expression tag
-                expression = None
-                expr_match = re.search(
-                    r'\[EXPRESSION:(\w+)\]', full_response
-                )
-                if expr_match:
-                    expression = expr_match.group(1)
+                    # Check if we have a complete expression tag
+                    expression = None
+                    expr_match = re.search(
+                        r'\[EXPRESSION:(\w+)\]', full_response
+                    )
+                    if expr_match:
+                        expression = expr_match.group(1)
 
-                yield {
-                    "token": token,
-                    "expression": expression,
-                    "done": False,
-                }
+                    yield {
+                        "token": token,
+                        "expression": expression,
+                        "done": False,
+                    }
 
             # Clean expression tag from final response
             clean_response = re.sub(
@@ -113,7 +120,6 @@ class LLMService:
             })
 
             # Keep conversation history very small for fast Prompt Evaluation
-            # 1 system prompt + 10 pairs (user/assistant) = 21 messages
             if len(self.conversation_history) > 21:
                 self.conversation_history = (
                     [self.conversation_history[0]]

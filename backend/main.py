@@ -75,7 +75,9 @@ async def websocket_endpoint(websocket: WebSocket):
     print("[WS] Client connected")
 
     if is_warming_up:
-        await websocket.send_json({"type": "status", "state": "Memanaskan AI (~10s)..."})
+        await websocket.send_json({"type": "startup_progress", "message": "Sedang mensinkronisasi dengan model..."})
+    else:
+        await websocket.send_json({"type": "status", "state": "idle"})
 
     try:
         while True:
@@ -95,7 +97,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
             elif msg_type == "chat":
-                await handle_chat(websocket, message.get("text", ""))
+                await handle_chat(websocket, message.get("text", ""), message.get("image"))
 
             elif msg_type == "audio":
                 await handle_audio(websocket, message.get("data", ""))
@@ -151,8 +153,8 @@ async def synthesize_and_send(websocket: WebSocket, text: str, expression: str):
         "expression": expression,
     })
 
-async def handle_chat(websocket: WebSocket, text: str):
-    """Handle text chat message with streaming response."""
+async def handle_chat(websocket: WebSocket, text: str, image_b64: str = None):
+    """Handle text chat message with streaming response, supporting optional vision."""
     if not text.strip():
         return
 
@@ -166,7 +168,7 @@ async def handle_chat(websocket: WebSocket, text: str):
     sentence_buffer = ""
 
     # Stream response tokens
-    async for chunk in llm_service.chat_stream(text):
+    async for chunk in llm_service.chat_stream(text, image_b64):
         if chunk.get("error"):
             await safe_send(websocket, {
                 "type": "error",
@@ -283,9 +285,17 @@ async def handle_audio(websocket: WebSocket, audio_b64: str):
 
 
 # ─── Startup / Shutdown ──────────────────────────────────────────────────────
+async def broadcast_progress(message: str):
+    for ws in list(active_websockets):
+        try:
+            await ws.send_json({"type": "startup_progress", "message": message})
+        except Exception:
+            pass
+
 async def warmup_models():
     """Background task to pre-load models into VRAM/Memory."""
     print("[Warmup] Memulai pemanasan model di background...")
+    await broadcast_progress("Memanaskan inti kecerdasan buatan...")
     
     # 1. Warmup LLM (Gemma) with the actual system prompt to cache it
     try:
@@ -296,12 +306,36 @@ async def warmup_models():
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": "hi"}
             ],
-            keep_alive="10m"
+            keep_alive="-1"
         )
         print("--- Warmup LLM OK ---")
-    except Exception:
-        print("--- Warmup LLM FAILED ---")
+        await broadcast_progress("Model AI siap!")
+    except Exception as e:
+        print(f"--- Warmup LLM FAILED: {e} ---")
+        await broadcast_progress("Gagal memuat model AI.")
         
+    # 2. Warmup TTS (Piper)
+    await broadcast_progress("Memuat pita suara (TTS)...")
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, tts_service.load_model)
+        if tts_service.is_available():
+            await loop.run_in_executor(None, tts_service.synthesize, "siap")
+            print("--- Warmup TTS OK ---")
+        else:
+            print("--- Warmup TTS skipped: Model not available ---")
+    except Exception as e:
+        print(f"--- Warmup TTS FAILED: {e} ---")
+
+    # 3. Warmup STT (Faster-Whisper)
+    await broadcast_progress("Memuat sistem pendengaran (STT)...")
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, stt_service.load_model)
+        print("--- Warmup STT OK ---")
+    except Exception as e:
+        print(f"--- Warmup STT FAILED: {e} ---")
+
     global is_warming_up
     is_warming_up = False
     
@@ -311,15 +345,6 @@ async def warmup_models():
             await ws.send_json({"type": "status", "state": "idle"})
         except Exception:
             pass
-        
-    # 2. Warmup TTS (Piper)
-    if tts_service.is_available():
-        try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, tts_service.synthesize, "siap")
-            print("--- Warmup TTS OK ---")
-        except Exception:
-            print("--- Warmup TTS FAILED ---")
 
 @app.on_event("startup")
 async def startup():
@@ -340,12 +365,6 @@ async def startup():
     
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, llm_service.memory.ingest_documents)
-
-    # Lazy-load STT (will load on first request)
-    print("STT Ready")
-
-    # Try loading TTS
-    tts_service.load_model()
 
     print("=" * 50)
     print(f"  Server ready at ws://{HOST}:{PORT}/ws")

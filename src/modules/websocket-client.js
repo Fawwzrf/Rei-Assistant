@@ -72,10 +72,14 @@ class WebSocketClient {
   }
 
   /**
-   * Send a chat message.
+   * Send a chat message with optional image data.
    */
-  sendChat(text) {
-    return this.send({ type: 'chat', text });
+  sendChat(text, imageData = null) {
+    const payload = { type: 'chat', text };
+    if (imageData) {
+      payload.image = imageData;
+    }
+    return this.send(payload);
   }
 
   /**
@@ -127,6 +131,9 @@ class WebSocketClient {
     const { type } = message;
 
     switch (type) {
+      case 'startup_progress':
+        this.emit('startup_progress', message);
+        break;
       case 'token':
         this.emit('token', message);
         break;

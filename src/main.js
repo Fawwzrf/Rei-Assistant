@@ -9,6 +9,7 @@ import Live2DManager from './modules/live2d-manager.js';
 import ExpressionController from './modules/expression-controller.js';
 import AudioRecorder from './modules/audio-recorder.js';
 import AudioPlayer from './modules/audio-player.js';
+import { CameraManager } from './modules/camera-manager.js';
 
 // ─── Initialize Modules ──────────────────────────────────────────────────
 const ws = new WebSocketClient();
@@ -17,14 +18,17 @@ const live2d = new Live2DManager('live2dCanvas');
 const expression = new ExpressionController();
 const recorder = new AudioRecorder();
 const player = new AudioPlayer();
+const camera = new CameraManager();
 
 // ─── DOM References ──────────────────────────────────────────────────────
 const connectionStatus = document.getElementById('connectionStatus');
 const avatarStatus = document.getElementById('avatarStatus');
 const statusText = document.getElementById('statusText');
 const btnMic = document.getElementById('btnMic');
+const btnCamera = document.getElementById('btnCamera');
 const thinkingOverlay = document.getElementById('thinkingOverlay');
-
+const splashScreen = document.getElementById('splashScreen');
+const splashText = document.getElementById('splashText');
 // ─── Titlebar Controls ───────────────────────────────────────────────────
 document.getElementById('btnMinimize')?.addEventListener('click', () => {
   window.electronAPI?.minimize();
@@ -50,10 +54,20 @@ ws.on('disconnected', () => {
   if (!hasConnectedOnce) {
     statusText.textContent = 'Menyalakan Sistem...';
     connectionStatus.textContent = 'Starting...';
+    if (splashScreen) {
+      splashScreen.classList.remove('hidden');
+      splashText.textContent = "Koneksi terputus, mencoba ulang...";
+    }
     return;
   }
   connectionStatus.textContent = 'Disconnected';
   setAvatarState('error');
+});
+
+ws.on('startup_progress', (data) => {
+  if (splashText) {
+    splashText.textContent = data.message;
+  }
 });
 
 ws.on('reconnecting', (attempt) => {
@@ -108,8 +122,7 @@ ws.on('sentence', (data) => {
 });
 
 ws.on('response_complete', (data) => {
-  // Removed endStream here because the queue might still be playing out.
-  // Thinking overlay is hidden to show we're speaking
+  chat.endStream(data.text);
   thinkingOverlay.hidden = true;
 
   if (data.expression) {
@@ -135,6 +148,11 @@ ws.on('stt_result', (data) => {
 
 ws.on('status', (data) => {
   setAvatarState(data.state);
+  
+  if (data.state === 'idle' && splashScreen && !splashScreen.classList.contains('hidden')) {
+    splashScreen.classList.add('hidden');
+    live2d.setExpression('neutral'); 
+  }
 
   if (data.state === 'thinking') {
     thinkingOverlay.hidden = false;
@@ -153,7 +171,11 @@ ws.on('max_reconnect', () => {
 
 // ─── Chat Callbacks ──────────────────────────────────────────────────────
 chat.onSendMessage = (text) => {
-  ws.sendChat(text);
+  let imageData = null;
+  if (camera.isActive) {
+    imageData = camera.captureFrameBase64();
+  }
+  ws.sendChat(text, imageData);
 };
 
 chat.onReset = () => {
@@ -196,6 +218,21 @@ btnMic.addEventListener('mouseleave', () => {
     setAvatarState('idle');
   }
 });
+
+// ─── Camera Callbacks ────────────────────────────────────────────────────
+if (btnCamera) {
+  btnCamera.addEventListener('click', async () => {
+    if (camera.isActive) {
+      camera.stopCamera();
+      btnCamera.classList.remove('active');
+    } else {
+      const started = await camera.startCamera();
+      if (started) {
+        btnCamera.classList.add('active');
+      }
+    }
+  });
+}
 
 recorder.onAudioReady = (base64Data) => {
   ws.sendAudio(base64Data);
