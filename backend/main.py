@@ -10,7 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import re
 
-from config import HOST, PORT
+from config import (
+    HOST, PORT, OLLAMA_MODEL, SYSTEM_PROMPT, 
+    EXPRESSION_PARAMS, OLLAMA_OPTIONS
+)
 from services.llm_service import LLMService
 from services.stt_service import STTService
 from services.tts_service import TTSService
@@ -97,7 +100,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
             elif msg_type == "chat":
-                await handle_chat(websocket, message.get("text", ""), message.get("image"))
+                await handle_chat(websocket, message.get("text", ""))
 
             elif msg_type == "audio":
                 await handle_audio(websocket, message.get("data", ""))
@@ -153,8 +156,8 @@ async def synthesize_and_send(websocket: WebSocket, text: str, expression: str):
         "expression": expression,
     })
 
-async def handle_chat(websocket: WebSocket, text: str, image_b64: str = None):
-    """Handle text chat message with streaming response, supporting optional vision."""
+async def handle_chat(websocket: WebSocket, text: str):
+    """Handle text chat message with streaming response."""
     if not text.strip():
         return
 
@@ -168,7 +171,7 @@ async def handle_chat(websocket: WebSocket, text: str, image_b64: str = None):
     sentence_buffer = ""
 
     # Stream response tokens
-    async for chunk in llm_service.chat_stream(text, image_b64):
+    async for chunk in llm_service.chat_stream(text):
         if chunk.get("error"):
             await safe_send(websocket, {
                 "type": "error",
@@ -306,7 +309,8 @@ async def warmup_models():
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": "hi"}
             ],
-            keep_alive="-1"
+            keep_alive="-1",
+            options=OLLAMA_OPTIONS
         )
         print("--- Warmup LLM OK ---")
         await broadcast_progress("Model AI siap!")

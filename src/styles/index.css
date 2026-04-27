@@ -696,3 +696,37 @@ html, body {
   from { opacity: 0.6; }
   to { opacity: 1; }
 }
+
+/* ─── Gemini-style Chat Loader ─────────────────────────────────────────── */
+.gemini-loader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 4px;
+}
+
+.gemini-loader span {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--clr-primary), var(--clr-secondary));
+  animation: gemini-bounce 1.4s ease-in-out infinite;
+}
+
+.gemini-loader span:nth-child(1) { animation-delay: -0.32s; }
+.gemini-loader span:nth-child(2) { animation-delay: -0.16s; }
+.gemini-loader span:nth-child(3) { animation-delay: 0s; }
+
+@keyframes gemini-bounce {
+  0%, 80%, 100% { 
+    transform: scale(0);
+    opacity: 0.5;
+  } 
+  40% { 
+    transform: scale(1.2);
+    opacity: 1;
+    box-shadow: 0 0 8px var(--clr-primary-glow);
+  }
+}

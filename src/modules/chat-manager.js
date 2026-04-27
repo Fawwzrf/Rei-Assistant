@@ -61,6 +61,9 @@ class ChatManager {
     if (this.onSendMessage) {
       this.onSendMessage(text);
     }
+    
+    // Immediately show Gemini loader while waiting for LLM
+    this.showLoadingBubble();
   }
 
   /**
@@ -82,20 +85,38 @@ class ChatManager {
   }
 
   /**
-   * Start streaming an assistant response.
+   * Start the loading/thinking state.
    */
-  startStream() {
+  showLoadingBubble() {
+    if (this.isLoading) return;
+    
     this.isStreaming = true;
-    this.currentStreamText = '';
+    this.isLoading = true;
     this.btnSend.disabled = true;
 
     const msgEl = this._createMessageElement('assistant', '');
     const bubble = msgEl.querySelector('.message-bubble');
-    bubble.classList.add('streaming');
+    
+    // Add Gemini style loader
+    bubble.innerHTML = `
+      <div class="gemini-loader">
+        <span></span><span></span><span></span>
+      </div>
+    `;
+    
     this.currentStreamBubble = bubble;
-
     this.messagesContainer.appendChild(msgEl);
     this._scrollToBottom();
+  }
+
+  /**
+   * Start streaming an assistant response (called when first token arrives if no loading bubble exists).
+   */
+  startStream() {
+    if (!this.currentStreamBubble) {
+      this.showLoadingBubble();
+    }
+    // Don't reset text yet, appendToken will handle it
   }
 
   /**
@@ -103,6 +124,13 @@ class ChatManager {
    */
   appendToken(token) {
     if (!this.currentStreamBubble) return;
+
+    if (this.isLoading) {
+      // Remove loading indicator on first token
+      this.isLoading = false;
+      this.currentStreamBubble.innerHTML = '';
+      this.currentStreamBubble.classList.add('streaming');
+    }
 
     this.currentStreamText += token;
     this.currentStreamBubble.innerHTML = this._formatText(this.currentStreamText);

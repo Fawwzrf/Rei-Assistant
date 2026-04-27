@@ -5,7 +5,7 @@ Handles streaming chat inference with persona system prompt.
 import ollama
 import asyncio
 import re
-from config import OLLAMA_MODEL, SYSTEM_PROMPT, OLLAMA_HOST
+from config import OLLAMA_MODEL, SYSTEM_PROMPT, OLLAMA_HOST, OLLAMA_OPTIONS
 from services.memory_service import MemoryService
 
 
@@ -27,7 +27,7 @@ class LLMService:
         """Reset conversation history, keeping system prompt."""
         self._init_conversation()
 
-    async def chat_stream(self, user_message: str, image_b64: str = None):
+    async def chat_stream(self, user_message: str):
         """
         Stream chat response from Gemma 4, supporting Vision and Tools.
         Yields dict with 'token' and optionally 'expression'.
@@ -36,10 +36,11 @@ class LLMService:
             "role": "user",
             "content": user_message
         }
-        if image_b64:
-            msg_payload["images"] = [image_b64]
-            
         self.conversation_history.append(msg_payload)
+
+        # Truncate history to keep context manageable (Last 15 messages + System)
+        if len(self.conversation_history) > 16:
+            self.conversation_history = [self.conversation_history[0]] + self.conversation_history[-15:]
 
         # --- OPTIMIZATION: Bypass RAG for short messages & Run Asynchronously ---
         context_str = ""
@@ -58,8 +59,6 @@ class LLMService:
                 "role": "user",
                 "content": augmented_content
             }
-            if image_b64:
-                messages_to_send[-1]["images"] = [image_b64]
 
         full_response = ""
 
@@ -68,6 +67,7 @@ class LLMService:
                 model=self.model,
                 messages=messages_to_send,
                 stream=True,
+                options=OLLAMA_OPTIONS
             )
 
             async for chunk in stream:

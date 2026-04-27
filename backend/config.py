@@ -13,6 +13,11 @@ PORT = 8765
 # ─── Ollama / Gemma 4 ────────────────────────────────────────────────────────
 OLLAMA_MODEL = "gemma3:4b"
 OLLAMA_HOST = "http://127.0.0.1:11434"
+OLLAMA_OPTIONS = {
+    "num_ctx": 4096,
+    "temperature": 0.7,
+    "top_p": 0.9,
+}
 
 # System prompt – persona Rei
 SYSTEM_PROMPT = """Kamu adalah Rei, asisten AI virtual wanita yang ramah dan cerdas.
@@ -31,8 +36,6 @@ Ekspresi yang tersedia:
 FITUR INGATAN (MEMORY):
 Jika pengguna memberitahu fakta penting tentang dirinya (misal: "nama saya Budi", "saya suka warna merah", "ingat ya, saya sedang belajar Laravel") atau meminta Anda secara eksplisit untuk mengingat sesuatu, cantumkan tag ingatan rahasia di akhir responsmu dalam format [MEMORY: fakta singkat tersebut].
 Tag ingatan tidak akan terlihat oleh pengguna, tetapi akan disimpan secara permanen.
-Contoh 1: "Tentu! Aku akan mengingatnya. [EXPRESSION:happy] [MEMORY: sedang belajar Laravel]"
-Contoh 2: "Salam kenal Budi! [EXPRESSION:happy] [MEMORY: nama pengguna adalah Budi]"
 """
 
 # ─── Faster-Whisper (STT) ─────────────────────────────────────────────────────
