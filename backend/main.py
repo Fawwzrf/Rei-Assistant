@@ -189,21 +189,24 @@ async def handle_chat(websocket: WebSocket, text: str):
             
             sentence_buffer += token
 
-            # Periksa apakah kita mencapai batas kalimat atau klausa (titik, koma, tanya, seru)
-            # Menambahkan koma (', ') agar TTS terpicu lebih awal (per klausa) tanpa menunggu satu kalimat penuh
-            if any(punc in token for punc in ['. ', '? ', '! ', '\n', ', ']) and len(sentence_buffer.strip()) > 2:
-                clean_sentence = sentence_buffer.strip()
-                sentence_buffer = ""
+            # Deteksi klausa/kalimat menggunakan regex pada buffer akumulatif
+            # Mencari '.', ',', '?', '!' diikuti oleh spasi/spasi putih, atau baris baru '\n'
+            match = re.search(r'([.,!?]\s|\n)', sentence_buffer)
+            if match:
+                split_idx = match.end()
+                clause = sentence_buffer[:split_idx].strip()
+                sentence_buffer = sentence_buffer[split_idx:]
 
                 # Bersihkan tag sistem dan teks action (*tersenyum*) sebelum diucapkan
-                tts_text = re.sub(r'\[.*?\]', '', clean_sentence)
+                tts_text = re.sub(r'\[.*?\]', '', clause)
                 tts_text = re.sub(r'\*.*?\*', '', tts_text).strip()
 
-                if tts_text:
-                    # Dispatch background task for TTS to avoid blocking the LLM stream
+                if tts_text and len(tts_text) > 1:
+                    # Jalankan TTS secara asinkron di background
                     asyncio.create_task(
                         synthesize_and_send(websocket, tts_text, chunk.get("expression", "neutral"))
                     )
+
         else:
             # Process remaining buffer if any
             if sentence_buffer.strip():
@@ -294,27 +297,38 @@ async def broadcast_progress(message: str):
             pass
 
 async def warmup_models():
-    """Background task to pre-load models into VRAM/Memory."""
+    """Background task to pre-load models into VRAM/Memory and compile LangChain."""
     print("[Warmup] Memulai pemanasan model di background...")
     await broadcast_progress("Memanaskan inti kecerdasan buatan...")
     
-    # 1. Warmup LLM (Gemma) with the actual system prompt to cache it
+    # 1. Warmup LLM (Gemma) menggunakan ChatOllama agar compile & load VRAM selesai
+    from langchain_core.messages import SystemMessage, HumanMessage
     try:
-        system_prompt = llm_service.conversation_history[0]["content"] if llm_service.conversation_history else "Anda adalah asisten AI."
-        await llm_service.client.chat(
-            model=llm_service.model, 
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": "hi"}
-            ],
-            keep_alive="-1",
-            options=OLLAMA_OPTIONS
-        )
+        system_prompt = llm_service.conversation_history[0].content if llm_service.conversation_history else "Anda adalah asisten AI."
+        print("[Warmup] Mengirim request inisialisasi ke ChatOllama...")
+        await llm_service.llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content="hi")
+        ])
+        
+        # Test tool support to set the self.supports_tools flag early
+        print("[Warmup] Menguji dukungan native tool calling...")
+        try:
+            await llm_service.llm_with_tools.ainvoke([
+                HumanMessage(content="Cari cuaca hari ini")
+            ])
+            llm_service.supports_tools = True
+            print("[Warmup] Model mendukung tool calling secara native.")
+        except Exception as tool_err:
+            llm_service.supports_tools = False
+            print(f"[Warmup] Model tidak mendukung tool calling ({tool_err}). Menonaktifkan native tools.")
+
         print("--- Warmup LLM OK ---")
         await broadcast_progress("Model AI siap!")
     except Exception as e:
         print(f"--- Warmup LLM FAILED: {e} ---")
         await broadcast_progress("Gagal memuat model AI.")
+
         
     # 2. TTS Setup (Edge-TTS)
     await broadcast_progress("Menyiapkan suara neural...")

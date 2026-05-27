@@ -161,6 +161,10 @@ ws.on('max_reconnect', () => {
 
 // ─── Chat Callbacks ──────────────────────────────────────────────────────
 chat.onSendMessage = (text) => {
+  // Hentikan suara asisten jika sedang berbicara (interupsi chat baru)
+  player.stop();
+  live2d.setMouthOpen(0);
+  live2d.setTrackingMode('typing');
   ws.sendChat(text, null);
 };
 
@@ -169,12 +173,19 @@ chat.onReset = () => {
   player.stop();
   live2d.setExpression('neutral');
   chat.endStream('');
+  live2d.setTrackingMode('idle');
 };
 
 // ─── Audio / Mic Controls ────────────────────────────────────────────────
 let micInitialized = false;
 
 btnMic.addEventListener('mousedown', async () => {
+  // Hentikan suara asisten jika sedang berbicara saat mic ditekan
+  player.stop();
+  live2d.setMouthOpen(0);
+  live2d.setTrackingMode('listening');
+  live2d.setExpression('neutral');
+
   if (!micInitialized) {
     const ok = await recorder.init();
     if (!ok) {

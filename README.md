@@ -7,9 +7,11 @@ Rei Project adalah asisten AI virtual berbasis desktop yang ditenagai oleh model
 - **Visual Karakter Live2D**: Animasi karakter "Rei" yang responsif dengan sinkronisasi bibir (*lip-sync*) otomatis dan perubahan ekspresi berdasarkan konteks pembicaraan.
 - **Local AI (Gemma 3)**: Pemrosesan bahasa 100% berjalan secara lokal menggunakan Ollama dengan orkestrasi **LangChain** (`ChatOllama`), menjamin privasi penuh.
 - **Contextual Memory & RAG**: Kemampuan *Long-Term Memory* dan RAG menggunakan **ChromaDB** yang terintegrasi secara modular lewat **LangChain** (`Chroma` & `HuggingFaceEmbeddings`). Rei dapat mengingat fakta spesifik tentang Anda atau mengambil data dari kumpulan dokumen lokal Anda di folder `knowledge/`.
+- **Dynamic Web Search (DuckDuckGo)**: Akses informasi dunia nyata secara real-time (cuaca, berita terbaru, kurs) secara otomatis menggunakan routing hybrid (pre-emptive keyword & native tool calling).
+- **Smart Memory Summarization**: Penghematan token context window melalui perangkuman percakapan lama secara asinkron di background, menjaga respons model lokal tetap cepat dan efisien.
 - **True Token Streaming**: Teks dikirim secara instan ke layar (*Time to First Token* < 500ms) tanpa harus menunggu seluruh kalimat maupun TTS selesai digenerate.
 - **Input Suara (STT)**: Memanfaatkan Faster-Whisper untuk pengenalan suara Bahasa Indonesia yang akurat dan responsif.
-- **Output Suara (TTS)**: Piper TTS bertugas mensintesis suara secara natural di latar belakang (*asynchronous*), memastikan antrean pembicaraan tidak menunda aliran teks awal.
+- **Output Suara (TTS)**: Microsoft Edge-TTS bertugas mensintesis suara secara natural secara asinkron, memastikan antrean pembicaraan tidak menunda aliran teks awal.
 
 ## 🏗️ System Architecture
 
@@ -24,9 +26,11 @@ flowchart TD
         B -->|Transcribed Text| D{WebSocket Router}
         D -->|Query| E[(Vector DB\nChromaDB via LangChain)]
         E -->|RAG Context| F[LLM Engine\nGemma 3 via LangChain ChatOllama]
+        F -->|Search Query| K[🌐 DuckDuckGo Search]
+        K -->|Search Results| F
         D -->|User Message| F
         F -->|Token Stream| D
-        F -->|Sentence Boundry| G[TTS Service\nPiper TTS]
+        F -->|Sentence Boundary| G[TTS Service\nEdge-TTS]
         G -->|Audio Stream| D
     end
 
@@ -88,6 +92,8 @@ npm run electron:dev
 - **Live2D**: Harap diingat bahwa sistem ini menggunakan SDK versi *Cubism Core v4* agar terhindar dari isu memori. File model berada di dalam folder `assets/model/hiyori/`.
 - **Ekstensi C++ Builder**: Beberapa layanan seperti Faster-Whisper atau ChromaDB yang membutuhkan library C++ build-tools sewaktu instalasi `pip` mungkin membutuhkan Microsoft C++ Build Tools (untuk Windows) jika terjadi diskrepansi *wheel*.
 - **RAG/Memori Awal**: Waktu proses pertama kali *backend* berjalan, ia akan mendownload *embedding model* berukuran sekitar ~100MB di *background*. Harap persiapkan koneksi internet Anda!
+- **Optimasi Latensi & Sinkronisasi**: Sistem menggunakan pemisah kalimat berbasis Regex untuk memicu TTS segera setelah klausa selesai di-generate. Selain itu, client-side audio player akan otomatis terhenti ketika pengguna mulai berbicara (menekan mic) atau mengirim pesan baru untuk mencegah suara bertumpuk (overlap).
+
 
 ---
 **Dirancang dan Dikembangkan oleh Fawwaz**
