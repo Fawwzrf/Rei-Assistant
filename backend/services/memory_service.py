@@ -1,10 +1,10 @@
 import os
 import uuid
-from typing import List, Dict, Any
-import chromadb
-from chromadb.utils import embedding_functions
+from typing import List
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.documents import Document
 
-# Optional PyPDF for future extension if needed, but for now we focus on txt/md
 try:
     import pypdf
 except ImportError:
@@ -17,29 +17,21 @@ class MemoryService:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.data_dir = os.path.join(base_dir, "data", "chroma")
         self.knowledge_dir = os.path.join(base_dir, "knowledge")
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
         # Create directories if they do not exist
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.knowledge_dir, exist_ok=True)
 
-        # Initialize ChromaDB persistent client
-        print("[MemoryService] Initializing ChromaDB (this may take a moment to download models on first run)...")
-        self.client = chromadb.PersistentClient(path=self.data_dir)
-        
-        # Use sentence-transformers all-MiniLM-L6-v2 as the embedding function
-        # Note: chromadb default is all-MiniLM-L6-v2 anyway, but we explicitly specify for clarity
-        self.ef = embedding_functions.DefaultEmbeddingFunction()
-
-        # Get or create the collections
-        # 'user_memory' for long term conceptual facts the user expressly tells Rei
-        # 'documents' for local file RAG
-        self.user_memory = self.client.get_or_create_collection(
-            name="user_memory", 
-            embedding_function=self.ef
+        self.user_memory = Chroma(
+            collection_name="user_memory",
+            embedding_function=self.embeddings,
+            persist_directory=self.data_dir
         )
-        self.documents = self.client.get_or_create_collection(
-            name="documents", 
-            embedding_function=self.ef
+        self.documents = Chroma(
+            collection_name="documents",
+            embedding_function=self.embeddings,
+            persist_directory=self.data_dir
         )
         
         print("[MemoryService] Online.")
@@ -51,8 +43,9 @@ class MemoryService:
             
         doc_id = str(uuid.uuid4())
         try:
-            self.user_memory.add(
-                documents=[fact],
+            # LangChain Chroma uses add_texts or add_documents instead of add()
+            self.user_memory.add_texts(
+                texts=[fact],
                 metadatas=[{"type": "user_fact"}],
                 ids=[doc_id]
             )
@@ -64,7 +57,7 @@ class MemoryService:
 
     def query_context(self, query_text: str, n_results: int = 3) -> str:
         """
-        Query both user memory and local documents.
+        Query both user memory and local documents using LangChain API.
         Returns a formatted context string.
         """
         if not query_text or not query_text.strip():
@@ -72,49 +65,39 @@ class MemoryService:
 
         context_blocks = []
 
-        # 1. Query User Memory
+        # 1. Query User Memory using similarity_search_with_score
         try:
-            mem_results = self.user_memory.query(
-                query_texts=[query_text],
-                n_results=n_results
+            mem_results = self.user_memory.similarity_search_with_score(
+                query_text,
+                k=n_results
             )
-            if mem_results and mem_results['documents'] and len(mem_results['documents'][0]) > 0:
-                # Filter by distance if available
-                distances = mem_results['distances'][0]
-                docs = mem_results['documents'][0]
-                
-                valid_memories = []
-                for doc, dist in zip(docs, distances):
-                    # Lower distance is better. Limit to somewhat strict similarity (e.g. < 1.0 depending on embedding space)
-                    if dist < 1.0: 
-                        valid_memories.append(f"- {doc}")
-                
-                if valid_memories:
-                    context_blocks.append("Ingatan Masa Lalu tentang Pengguna:\n" + "\n".join(valid_memories))
+            valid_memories = []
+            for doc, distance in mem_results:
+                # Lower L2 distance is better. Limit to somewhat strict similarity (e.g. < 1.0)
+                if distance < 1.0:
+                    valid_memories.append(f"- {doc.page_content}")
+            
+            if valid_memories:
+                context_blocks.append("Ingatan Masa Lalu tentang Pengguna:\n" + "\n".join(valid_memories))
         except Exception as e:
-            pass
+            print(f"[MemoryService] Error querying user memory: {e}")
 
-        # 2. Query Documents (RAG)
+        # 2. Query Documents (RAG) using similarity_search_with_score
         try:
-            doc_results = self.documents.query(
-                query_texts=[query_text],
-                n_results=n_results
+            doc_results = self.documents.similarity_search_with_score(
+                query_text,
+                k=n_results
             )
-            if doc_results and doc_results['documents'] and len(doc_results['documents'][0]) > 0:
-                distances = doc_results['distances'][0]
-                docs = doc_results['documents'][0]
-                sources = doc_results['metadatas'][0]
-                
-                valid_docs = []
-                for doc, meta, dist in zip(docs, sources, distances):
-                    if dist < 1.2:  # slightly more lenient for document chunks
-                        source_name = meta.get('source', 'Unknown')
-                        valid_docs.append(f"[Sumber: {source_name}]\n{doc}")
-                
-                if valid_docs:
-                    context_blocks.append("Konteks dari Dokumen RAG:\n" + "\n\n".join(valid_docs))
+            valid_docs = []
+            for doc, distance in doc_results:
+                if distance < 1.2:  # slightly more lenient for document chunks
+                    source_name = doc.metadata.get('source', 'Unknown')
+                    valid_docs.append(f"[Sumber: {source_name}]\n{doc.page_content}")
+            
+            if valid_docs:
+                context_blocks.append("Konteks dari Dokumen RAG:\n" + "\n\n".join(valid_docs))
         except Exception as e:
-            pass
+            print(f"[MemoryService] Error querying documents: {e}")
 
         if not context_blocks:
             return ""
@@ -158,15 +141,16 @@ class MemoryService:
                     with open(filepath, "r", encoding="utf-8") as f:
                         text_content = f.read()
 
-                # Basic chunking (overlap not implemented for simplicity, just chunk by ~500 chars keeping words)
+                # Basic chunking
                 chunks = self._chunk_text(text_content, chunk_size=500)
                 
                 if chunks:
                     ids = [f"{filename}_{i}" for i in range(len(chunks))]
                     metadatas = [{"source": filename} for _ in chunks]
                     
-                    self.documents.add(
-                        documents=chunks,
+                    # LangChain Chroma uses add_texts
+                    self.documents.add_texts(
+                        texts=chunks,
                         metadatas=metadatas,
                         ids=ids
                     )
@@ -194,3 +178,4 @@ class MemoryService:
             chunks.append(" ".join(current_chunk))
             
         return chunks
+

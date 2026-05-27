@@ -1,10 +1,13 @@
 """
-LLM Service — Gemma 4 E2B via Ollama
-Handles streaming chat inference with persona system prompt.
+LLM Service — Gemma 4 E2B via Ollama (LangChain Version)
+Handles streaming chat inference with persona system prompt using LangChain ChatOllama.
 """
 import ollama
 import asyncio
 import re
+from typing import AsyncGenerator
+from langchain_ollama import ChatOllama
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from config import OLLAMA_MODEL, SYSTEM_PROMPT, OLLAMA_HOST, OLLAMA_OPTIONS
 from services.memory_service import MemoryService
 
@@ -14,28 +17,34 @@ class LLMService:
         self.model = OLLAMA_MODEL
         self.client = ollama.AsyncClient(host=OLLAMA_HOST)
         self.memory = MemoryService()
+        
+        # Inisialisasi ChatOllama dari LangChain
+        self.llm = ChatOllama(
+            model=self.model,
+            base_url=OLLAMA_HOST,
+            temperature=OLLAMA_OPTIONS.get("temperature", 0.7),
+            num_ctx=OLLAMA_OPTIONS.get("num_ctx", 4096),
+            top_p=OLLAMA_OPTIONS.get("top_p", 0.9),
+        )
         self.conversation_history = []
         self._init_conversation()
 
     def _init_conversation(self):
-        """Initialize conversation with system prompt persona."""
+        """Initialize conversation with system prompt persona using LangChain Messages."""
         self.conversation_history = [
-            {"role": "system", "content": SYSTEM_PROMPT}
+            SystemMessage(content=SYSTEM_PROMPT)
         ]
 
     def reset_conversation(self):
         """Reset conversation history, keeping system prompt."""
         self._init_conversation()
 
-    async def chat_stream(self, user_message: str):
+    async def chat_stream(self, user_message: str) -> AsyncGenerator[dict, None]:
         """
-        Stream chat response from Gemma 4, supporting Vision and Tools.
+        Stream chat response from Gemma 4 using LangChain, supporting Vision and Tools.
         Yields dict with 'token' and optionally 'expression'.
         """
-        msg_payload = {
-            "role": "user",
-            "content": user_message
-        }
+        msg_payload = HumanMessage(content=user_message)
         self.conversation_history.append(msg_payload)
 
         # Truncate history to keep context manageable (Last 15 messages + System)
@@ -54,40 +63,32 @@ class LLMService:
         messages_to_send = list(self.conversation_history)
         
         if context_str:
-            augmented_content = f"{user_message}\n\n[INFO SISTEM - KONTEKS TAMBAHAN UNTUK MEMBANTUMU MENJAWAB:\n{context_str}\n\nCatatan: Gunakan konteks di atas untuk menjawab jika relevan saja. Jangan sebutkan bahwa kamu membaca konteks sistem.]"
-            messages_to_send[-1] = {
-                "role": "user",
-                "content": augmented_content
-            }
+            augmented_content = f"{user_message}\n\n[INFO SISTEM - KONTEKS TAMBAHAN UNTUK MEMBANTUMU MENJAWAB:\n{context_str}\n\nCatatan: Gunakan konteks di atas untuk jawaban jika relevan saja. Jangan sebutkan bahwa kamu membaca konteks sistem.]"
+            messages_to_send[-1] = HumanMessage(content=augmented_content)
 
         full_response = ""
 
         try:
-            stream = await self.client.chat(
-                model=self.model,
-                messages=messages_to_send,
-                stream=True,
-                options=OLLAMA_OPTIONS
-            )
+            # Menggunakan astream dari LangChain untuk mendapatkan generator asinkron
+            stream = self.llm.astream(messages_to_send)
 
             async for chunk in stream:
-                if "message" in chunk and "content" in chunk["message"]:
-                    token = chunk["message"]["content"]
-                    full_response += token
+                token = chunk.content
+                full_response += token
 
-                    # Check if we have a complete expression tag
-                    expression = None
-                    expr_match = re.search(
-                        r'\[EXPRESSION:(\w+)\]', full_response
-                    )
-                    if expr_match:
-                        expression = expr_match.group(1)
+                # Check if we have a complete expression tag
+                expression = None
+                expr_match = re.search(
+                    r'\[EXPRESSION:(\w+)\]', full_response
+                )
+                if expr_match:
+                    expression = expr_match.group(1)
 
-                    yield {
-                        "token": token,
-                        "expression": expression,
-                        "done": False,
-                    }
+                yield {
+                    "token": token,
+                    "expression": expression,
+                    "done": False,
+                }
 
             # Clean expression tag from final response
             clean_response = re.sub(
@@ -113,11 +114,8 @@ class LLMService:
             if expr_match:
                 final_expression = expr_match.group(1)
 
-            # Save cleaned response to history
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": clean_response
-            })
+            # Save cleaned response to history as AIMessage
+            self.conversation_history.append(AIMessage(content=clean_response))
 
             # Keep conversation history very small for fast Prompt Evaluation
             if len(self.conversation_history) > 21:
@@ -149,3 +147,4 @@ class LLMService:
             return any(self.model in name for name in model_names)
         except Exception:
             return False
+
