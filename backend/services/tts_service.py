@@ -1,85 +1,74 @@
 """
-TTS Service — Text-to-Speech using Piper TTS
-Generates Indonesian speech audio locally.
+TTS Service — Text-to-Speech using Microsoft Edge-TTS
+Generates high-quality natural speech via API.
 """
 import io
-import wave
 import os
-from config import PIPER_MODEL_PATH, PIPER_CONFIG_PATH, PIPER_SAMPLE_RATE
+import asyncio
+import edge_tts
+from config import EDGE_TTS_VOICE, EDGE_TTS_PITCH, EDGE_TTS_RATE
 
 
 class TTSService:
     def __init__(self):
-        self.voice = None
-        self._loaded = False
-        self._available = False
+        self._available = True # Edge-TTS is API based, assumed available if internet exists
 
-    def load_model(self):
-        """Load Piper TTS voice model (lazy loading)."""
-        if self._loaded:
-            return
-
-        # Check if model files exist
-        if not os.path.exists(PIPER_MODEL_PATH):
-            print(f"[TTS] Model not found: {PIPER_MODEL_PATH}")
-            print("[TTS] Download it from: https://huggingface.co/rhasspy/piper-voices")
-            print("[TTS] Place files in: assets/tts-models/")
-            self._available = False
-            return
+    async def synthesize(self, text: str) -> bytes:
+        """
+        Synthesize text to MP3/WAV audio bytes using Edge-TTS.
+        Loads settings dynamically from tts_settings.json for live tuning.
+        """
+        # --- LIVE TUNING: Load settings from JSON on every call ---
+        import json
+        settings_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tts_settings.json")
+        
+        # Default values from config if file fails
+        voice = EDGE_TTS_VOICE
+        pitch = EDGE_TTS_PITCH
+        rate = EDGE_TTS_RATE
 
         try:
-            from piper import PiperVoice
-            print(f"[TTS] Loading Piper model: {PIPER_MODEL_PATH}...")
-            self.voice = PiperVoice.load(
-                PIPER_MODEL_PATH,
-                config_path=PIPER_CONFIG_PATH,
+            if os.path.exists(settings_path):
+                with open(settings_path, "r") as f:
+                    data = json.load(f)
+                    voice = data.get("voice", voice)
+                    pitch = data.get("pitch", pitch)
+                    rate = data.get("rate", rate)
+        except Exception as e:
+            print(f"[TTS] Error loading live settings: {e}")
+
+        print(f"[TTS] Synthesizing with {pitch} pitch, {rate} rate...")
+        
+        try:
+            communicate = edge_tts.Communicate(
+                text, 
+                voice,
+                pitch=pitch,
+                rate=rate
             )
-            self._loaded = True
-            self._available = True
-            print("[TTS] Model loaded successfully.")
-        except Exception as e:
-            print(f"[TTS] Failed to load model: {e}")
-            self._available = False
-
-    def synthesize(self, text: str) -> bytes:
-        """
-        Synthesize text to WAV audio bytes.
-
-        Args:
-            text: Indonesian text to speak
-
-        Returns:
-            WAV audio as bytes
-        """
-        self.load_model()
-
-        if not self._available:
-            return b""
-
-        try:
-            # Create in-memory WAV file
-            wav_buffer = io.BytesIO()
-
-            with wave.open(wav_buffer, "wb") as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(PIPER_SAMPLE_RATE)
-
-                audio_stream = self.voice.synthesize(text)
-                for chunk in audio_stream:
-                    wav_file.writeframes(chunk.audio_int16_bytes)
-
-            wav_buffer.seek(0)
-            return wav_buffer.read()
+            
+            # Use memory buffer for audio
+            audio_data = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data += chunk["data"]
+            
+            if audio_data:
+                print(f"[TTS] Successfully generated {len(audio_data)} bytes.")
+            else:
+                print("[TTS] Generated empty audio data.")
+                
+            return audio_data
 
         except Exception as e:
-            print(f"[TTS] Synthesis error: {e}")
+            print(f"[TTS] Edge-TTS error: {e}")
+            import traceback
+            traceback.print_exc()
             return b""
 
     def is_available(self) -> bool:
-        """Check if TTS model is loaded and available."""
         return self._available
 
     def is_loaded(self) -> bool:
-        """Check if model loading was attempted."""
-        return self._loaded
+        return True
+

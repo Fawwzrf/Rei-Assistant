@@ -44,17 +44,14 @@ WHISPER_LANGUAGE = "id"       # Indonesian
 WHISPER_DEVICE = "cpu"        # "cpu" or "cuda"
 WHISPER_COMPUTE_TYPE = "int8" # "int8" for CPU, "float16" for GPU
 
-# ─── Piper TTS ────────────────────────────────────────────────────────────────
-PIPER_MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "assets", "tts-models", "id_ID-news_tts-medium.onnx"
-)
-PIPER_CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "assets", "tts-models", "id_ID-news_tts-medium.onnx.json"
-)
-PIPER_SPEAKER_ID = None  # Default speaker
+# ─── Edge-TTS (Neural TTS) ──────────────────────────────────────────────────
+EDGE_TTS_VOICE = "id-ID-GadisNeural"
+EDGE_TTS_PITCH = "+35Hz"   # Lebih tinggi agar imut/girly
+EDGE_TTS_RATE = "+25%"    # Lebih cepat agar energik
+
+# ─── Legacy Piper TTS (Optional fallback) ───────────────────────────────────
 PIPER_SAMPLE_RATE = 22050
+
 
 # ─── Expression Mapping ─────────────────────────────────────────────────────
 EXPRESSION_PARAMS = {

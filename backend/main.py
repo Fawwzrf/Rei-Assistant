@@ -142,10 +142,7 @@ async def synthesize_and_send(websocket: WebSocket, text: str, expression: str):
     """Background task to synthesize TTS and send it without blocking LLM stream."""
     audio_b64 = None
     if tts_service.is_available():
-        loop = asyncio.get_event_loop()
-        audio_bytes = await loop.run_in_executor(
-            None, tts_service.synthesize, text
-        )
+        audio_bytes = await tts_service.synthesize(text)
         if audio_bytes:
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
     
@@ -318,18 +315,10 @@ async def warmup_models():
         print(f"--- Warmup LLM FAILED: {e} ---")
         await broadcast_progress("Gagal memuat model AI.")
         
-    # 2. Warmup TTS (Piper)
-    await broadcast_progress("Memuat pita suara (TTS)...")
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, tts_service.load_model)
-        if tts_service.is_available():
-            await loop.run_in_executor(None, tts_service.synthesize, "siap")
-            print("--- Warmup TTS OK ---")
-        else:
-            print("--- Warmup TTS skipped: Model not available ---")
-    except Exception as e:
-        print(f"--- Warmup TTS FAILED: {e} ---")
+    # 2. TTS Setup (Edge-TTS)
+    await broadcast_progress("Menyiapkan suara neural...")
+    print("--- TTS (Edge) Ready ---")
+
 
     # 3. Warmup STT (Faster-Whisper)
     await broadcast_progress("Memuat sistem pendengaran (STT)...")
