@@ -6,7 +6,9 @@ import ollama
 import asyncio
 import re
 from typing import AsyncGenerator
+# pyrefly: ignore [missing-import]
 from langchain_ollama import ChatOllama
+# pyrefly: ignore [missing-import]
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from config import OLLAMA_MODEL, SYSTEM_PROMPT, OLLAMA_HOST, OLLAMA_OPTIONS
 from services.memory_service import MemoryService

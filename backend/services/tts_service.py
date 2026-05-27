@@ -2,7 +2,6 @@
 TTS Service — Text-to-Speech using Microsoft Edge-TTS
 Generates high-quality natural speech via API.
 """
-import io
 import os
 import asyncio
 import edge_tts

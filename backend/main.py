@@ -125,10 +125,11 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         active_websockets.discard(websocket)
 
-import asyncio
 
 # Lock to prevent concurrent websocket.send_json calls when background tasks finish
 ws_lock = asyncio.Lock()
+
+
 
 async def safe_send(websocket: WebSocket, data: dict):
     """Safely send JSON to websocket, preventing concurrent sends."""

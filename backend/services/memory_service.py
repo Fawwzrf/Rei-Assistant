@@ -1,11 +1,14 @@
 import os
 import uuid
 from typing import List
+# pyrefly: ignore [missing-import]
 from langchain_chroma import Chroma
+# pyrefly: ignore [missing-import]
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.documents import Document
+
 
 try:
+    # pyrefly: ignore [missing-import]
     import pypdf
 except ImportError:
     pypdf = None
