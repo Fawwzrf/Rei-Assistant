@@ -3,9 +3,6 @@ Gemma-Aura Backend Configuration
 """
 import os
 
-# ─── Model Settings ───────────────────────────────────────────────────────────
-MODEL_NAME = "gemma2:2b"
-
 # ─── Server ───────────────────────────────────────────────────────────────────
 HOST = "127.0.0.1"
 PORT = 8765
@@ -49,8 +46,6 @@ EDGE_TTS_VOICE = "id-ID-GadisNeural"
 EDGE_TTS_PITCH = "+35Hz"   # Lebih tinggi agar imut/girly
 EDGE_TTS_RATE = "+25%"    # Lebih cepat agar energik
 
-# ─── Legacy Piper TTS (Optional fallback) ───────────────────────────────────
-PIPER_SAMPLE_RATE = 22050
 
 
 # ─── Expression Mapping ─────────────────────────────────────────────────────

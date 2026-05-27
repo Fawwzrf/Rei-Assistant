@@ -2,7 +2,6 @@
 STT Service — Speech-to-Text using Faster-Whisper
 Transcribes audio to Indonesian text locally.
 """
-import io
 import numpy as np
 from faster_whisper import WhisperModel
 from config import (

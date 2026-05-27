@@ -5,8 +5,8 @@ Rei Project adalah asisten AI virtual berbasis desktop yang ditenagai oleh model
 ## 🚀 Fitur Utama
 
 - **Visual Karakter Live2D**: Animasi karakter "Rei" yang responsif dengan sinkronisasi bibir (*lip-sync*) otomatis dan perubahan ekspresi berdasarkan konteks pembicaraan.
-- **Local AI (Gemma 3)**: Pemrosesan bahasa 100% berjalan secara lokal menggunakan Ollama, menjamin privasi penuh.
-- **Contextual Memory & RAG**: Kemampuan *Long-Term Memory* dan RAG menggunakan **ChromaDB**. Rei dapat mengingat fakta spesifik tentang Anda atau mengambil data dari kumpulan dokumen lokal Anda di folder `knowledge/`.
+- **Local AI (Gemma 3)**: Pemrosesan bahasa 100% berjalan secara lokal menggunakan Ollama dengan orkestrasi **LangChain** (`ChatOllama`), menjamin privasi penuh.
+- **Contextual Memory & RAG**: Kemampuan *Long-Term Memory* dan RAG menggunakan **ChromaDB** yang terintegrasi secara modular lewat **LangChain** (`Chroma` & `HuggingFaceEmbeddings`). Rei dapat mengingat fakta spesifik tentang Anda atau mengambil data dari kumpulan dokumen lokal Anda di folder `knowledge/`.
 - **True Token Streaming**: Teks dikirim secara instan ke layar (*Time to First Token* < 500ms) tanpa harus menunggu seluruh kalimat maupun TTS selesai digenerate.
 - **Input Suara (STT)**: Memanfaatkan Faster-Whisper untuk pengenalan suara Bahasa Indonesia yang akurat dan responsif.
 - **Output Suara (TTS)**: Piper TTS bertugas mensintesis suara secara natural di latar belakang (*asynchronous*), memastikan antrean pembicaraan tidak menunda aliran teks awal.
@@ -22,8 +22,8 @@ flowchart TD
     
     subgraph Backend [FastAPI Backend]
         B -->|Transcribed Text| D{WebSocket Router}
-        D -->|Query| E[(Vector DB\nChromaDB)]
-        E -->|RAG Context| F[LLM Engine\nGemma 3 4B via Ollama]
+        D -->|Query| E[(Vector DB\nChromaDB via LangChain)]
+        E -->|RAG Context| F[LLM Engine\nGemma 3 via LangChain ChatOllama]
         D -->|User Message| F
         F -->|Token Stream| D
         F -->|Sentence Boundry| G[TTS Service\nPiper TTS]
