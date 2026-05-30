@@ -1,8 +1,8 @@
-# Rei Project: Gemma-Aura 🌸
+# Rei Assistant
 
-Rei Project adalah asisten AI virtual berbasis desktop yang ditenagai oleh model bahasa **Gemma 3** (melalui Ollama), lengkap dengan integrasi **Live2D** untuk visualisasi karakter, **STT (Speech-to-Text)** untuk input suara, dan **TTS (Text-to-Speech)** untuk output suara. Sistem ini dibangun dengan fokus pada latensi rendah (*True Token Streaming*) dan dilengkapi sistem memori berkelanjutan (*Long-Term Memory*).
+Rei Assistant adalah asisten AI virtual berbasis desktop yang ditenagai oleh model bahasa **Gemma 3** (melalui Ollama), lengkap dengan integrasi **Live2D** untuk visualisasi karakter, **STT (Speech-to-Text)** untuk input suara, dan **TTS (Text-to-Speech)** untuk output suara. Sistem ini dibangun dengan fokus pada latensi rendah (*True Token Streaming*) dan dilengkapi sistem memori berkelanjutan (*Long-Term Memory*).
 
-## 🚀 Fitur Utama
+## Fitur Utama
 
 - **Visual Karakter Live2D**: Animasi karakter "Rei" yang responsif dengan sinkronisasi bibir (*lip-sync*) otomatis dan perubahan ekspresi berdasarkan konteks pembicaraan.
 - **Local AI (Gemma 3)**: Pemrosesan bahasa 100% berjalan secara lokal menggunakan Ollama dengan orkestrasi **LangChain** (`ChatOllama`), menjamin privasi penuh.
@@ -11,7 +11,7 @@ Rei Project adalah asisten AI virtual berbasis desktop yang ditenagai oleh model
 - **Input Suara (STT)**: Memanfaatkan Faster-Whisper untuk pengenalan suara Bahasa Indonesia yang akurat dan responsif.
 - **Output Suara (TTS)**: Piper TTS bertugas mensintesis suara secara natural di latar belakang (*asynchronous*), memastikan antrean pembicaraan tidak menunda aliran teks awal.
 
-## 🏗️ System Architecture
+## System Architecture
 
 Arsitektur aplikasi dirancang agar proses pemahaman suara, pengambilan pikiran, dan animasi dapat berjalan seefisien dan sesinkron mungkin:
 
@@ -31,13 +31,13 @@ flowchart TD
     end
 
     %% Sync to Frontend Frontend
-    D -->|Instan Tokens| H[💻 UI Chat Manager]
-    D -->|Audio Queue| I[🔊 Audio Player]
+    D -->|Instan Tokens| H[UI Chat Manager]
+    D -->|Audio Queue| I[ Audio Player]
     I -->|Audio Playback| User((User))
-    I -->|Amplitude Analysis| J[✨ Live2D Manager\nLip-Sync Engine]
+    I -->|Amplitude Analysis| J[ Live2D Manager\nLip-Sync Engine]
 ```
 
-## 📊 Benchmark
+## Benchmark
 
 Data pengujian lokal pada perangkat standar:
 
@@ -58,7 +58,7 @@ Sebelum menjalankan sistem ini, pastikan Anda telah menginstal:
 3.  **Ollama**: [Unduh di sini](https://ollama.com/).
 4.  **Model Gemma 3**: Jalankan `ollama pull gemma3:4b` di terminal Anda.
 
-## 📂 Struktur Proyek
+## Struktur Proyek
 
 - `/backend`: Server FastAPI (LLM, RAG/ChromaDB, STT, TTS logic).
 - `/backend/knowledge`: Drop folder untuk dokumen pendukung RAG (`.txt`, `.md`).
@@ -66,7 +66,7 @@ Sebelum menjalankan sistem ini, pastikan Anda telah menginstal:
 - `/src`: Frontend web (Vite + WebGL/PixiJS untuk render Live2D).
 - `/assets`: Model Live2D dan aset pendukung.
 
-## ⚙️ Cara Menjalankan
+## Cara Menjalankan
 
 Karena Node.js (Vite & Electron) dikonfigurasi untuk secara otomatis memancing berjalannya *Python Backend* (via `electron/main.js`), Anda tidak perlu repot-repot menyalakan keduanya secara manual!
 
@@ -83,7 +83,7 @@ npm install
 npm run electron:dev
 ```
 
-## 📝 Catatan Penting
+## Catatan Penting
 
 - **Live2D**: Harap diingat bahwa sistem ini menggunakan SDK versi *Cubism Core v4* agar terhindar dari isu memori. File model berada di dalam folder `assets/model/hiyori/`.
 - **Ekstensi C++ Builder**: Beberapa layanan seperti Faster-Whisper atau ChromaDB yang membutuhkan library C++ build-tools sewaktu instalasi `pip` mungkin membutuhkan Microsoft C++ Build Tools (untuk Windows) jika terjadi diskrepansi *wheel*.
